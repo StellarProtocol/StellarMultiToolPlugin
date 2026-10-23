@@ -44,7 +44,12 @@ public sealed partial class Plugin
         {
             // Migrate the older packed-string key forward, then re-save as JSON so this only ever happens once.
             InstrumentMutePatch.LoadLegacyNames(_cfg.Get<string>("band_mute_names", ""));
-            if (InstrumentMutePatch.Picks().Count > 0) SaveBandMutePicks();
+            // Staged only — the constructor's single post-Init save persists it (Plugin.cs _cfgLoadDirty).
+            if (InstrumentMutePatch.Picks().Count > 0)
+            {
+                _cfg.Set("band_mute_picks", InstrumentMutePatch.Picks());
+                _cfgLoadDirty = true;
+            }
         }
 
         InstrumentMutePatch.Enabled       = _bandMuteEnabled;

@@ -26,6 +26,7 @@ public sealed partial class Plugin : IStellarPlugin
 
     private readonly IPluginServices _services;
     private readonly IConfigSection  _cfg;
+    private bool _cfgLoadDirty;   // an Init* staged a config migration; saved once at the end of the constructor
     private readonly List<IWindowControl> _windows   = new();
     private readonly List<IDisposable>    _launchers = new();
 
@@ -39,6 +40,11 @@ public sealed partial class Plugin : IStellarPlugin
         InitBandMute();       // Band Mute: silence specific other players' band instruments (Plugin.BandMute.cs)
         InitInviteAccept();   // Auto-Accept Invites: party + interaction invite auto-accept (Plugin.InviteAccept.cs)
         InitProfileCardAdd(); // "Auto-Accept" on the native profile card → per-player dialog — needs the lists (Plugin.ProfileCardAdd.cs)
+
+        // Load-time migrations above only STAGE (Set) and raise _cfgLoadDirty; persist them with ONE save here. Each
+        // Init saving on its own meant back-to-back writes, and the framework's single-thread writer has no retry on
+        // IOException — the second could hit a transient lock on the just-written file and be dropped.
+        if (_cfgLoadDirty) { _cfg.Save(); _cfgLoadDirty = false; }
 
         // The one and only main-menu tile — opens the hub, which links out to the sub-menus.
         var hub = RegisterWindow("multitool.hub", "MultiTool", 0, BuildHubRoot());

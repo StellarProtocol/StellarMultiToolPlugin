@@ -63,7 +63,7 @@ public sealed partial class Plugin
         {
             _cfg.Set("invite_party_whitelist",       InviteWhitelistOnly);
             _cfg.Set("invite_interaction_whitelist", InviteWhitelistOnly);
-            _cfg.Save();
+            _cfgLoadDirty = true;   // persisted by the constructor's single post-Init save (Plugin.cs)
         }
         _invPartyApplyEnabled = _cfg.Get<bool>("invite_party_apply_enabled", false);
         // Roster-only = listed with both switches off (Plugin.InviteRoster.cs). Never pushed to Lua. Normalised after
@@ -252,14 +252,27 @@ public sealed partial class Plugin
     // ── party handlers ────────────────────────────────────────────────────────────────────────────────────────────
     private void OnInvitePartyToggle(bool on) { _invPartyEnabled = on; SavePartyInvite(); }
     // Per-person switch handlers live in Plugin.InviteRoster.cs (shared with the per-player dialog).
-    private void SavePartyInvite()
+    // ONE _cfg.Save per user action. The framework's FileConfigStore writes on a single background thread with no
+    // retry on IOException: two back-to-back Saves meant the second write could hit a transient external lock on the
+    // just-written file (AV scan / watcher read) and be DROPPED — "Clear all" left invite_interaction_uids on disk
+    // while memory showed 0 players. So the per-section Stage* methods only Set keys + push into Lua, and
+    // CommitInviteConfig does the single disk Save + re-view. Multi-section actions stage every section, commit once.
+    private void SavePartyInvite() { StagePartyInvite(); CommitInviteConfig(); }
+
+    private void StagePartyInvite()
     {
         _cfg.Set("invite_party_enabled",   _invPartyEnabled);
         _cfg.Set("invite_party_whitelist", InviteWhitelistOnly);   // kept, always true (whitelist-only)
         _cfg.Set("invite_party_uids",      _invPartyUids);
-        _cfg.Save();
         _invite.SetParty(_invPartyEnabled, InviteWhitelistOnly, _invPartyUids);
-        PushWantedNames();   // uid list may have changed → update the resolver's wanted set
+    }
+
+    // The single disk write for any invite-roster change, then refresh the roster view + the resolver's wanted set
+    // (uid lists may have changed). PushWantedNames is idempotent, so running it once after all sections is enough.
+    private void CommitInviteConfig()
+    {
+        _cfg.Save();
+        PushWantedNames();
     }
 
     // ── party-join-request handler ────────────────────────────────────────────────────────────────────────────────
@@ -276,14 +289,14 @@ public sealed partial class Plugin
     // ── interaction handlers ──────────────────────────────────────────────────────────────────────────────────────
     private void OnInviteIntToggle(bool on) { _invIntEnabled = on; SaveIntInvite(); }
 
-    private void SaveIntInvite()
+    private void SaveIntInvite() { StageIntInvite(); CommitInviteConfig(); }
+
+    private void StageIntInvite()
     {
         _cfg.Set("invite_interaction_enabled",   _invIntEnabled);
         _cfg.Set("invite_interaction_whitelist", InviteWhitelistOnly);   // kept, always true (whitelist-only)
         _cfg.Set("invite_interaction_uids",      _invIntUids);
-        _cfg.Save();
         _invite.SetInteraction(_invIntEnabled, InviteWhitelistOnly, _invIntUids);
-        PushWantedNames();   // uid list may have changed → update the resolver's wanted set
     }
 
     // ── validate ──────────────────────────────────────────────────────────────────────────────────────────────────
