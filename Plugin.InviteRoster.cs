@@ -70,10 +70,10 @@ public sealed partial class Plugin
                 _invRosterUids.Add(uid);                // last switch off → keep them listed, roster-only
         }
 
-        // Stage the roster-only key; the owning section's save below does the single _cfg.Save, pushes the uid-set
-        // into Lua, and refreshes the roster view.
+        // Stage the roster-only key + the owning section (keys + Lua push), then ONE save + re-view.
         _cfg.Set("invite_roster_uids", _invRosterUids);
-        if (social) SaveIntInvite(); else SavePartyInvite();
+        if (social) StageIntInvite(); else StagePartyInvite();
+        CommitInviteConfig();
     }
 
     // Make sure a picked person is on the Players list: a new uid goes in roster-only (both switches off — invariant
@@ -84,31 +84,35 @@ public sealed partial class Plugin
         if (string.IsNullOrEmpty(uid) || IsListed(uid)) return;
         _invRosterUids.Add(uid);
         _cfg.Set("invite_roster_uids", _invRosterUids);
-        _cfg.Save();
-        PushWantedNames();   // re-view (new row) + adds the uid to the wanted-names set
+        CommitInviteConfig();   // save + re-view (new row) + adds the uid to the wanted-names set
     }
 
-    // The explicit delete (✕ on a row in the main window): drop the uid from all three lists and save.
-    // Only the sections that actually changed re-push to Lua.
+    // The explicit delete (✕ on a row in the main window): drop the uid from all three lists and save ONCE.
+    // Only the sections that actually changed re-push to Lua; a roster-only person pushes nothing, just persists +
+    // re-views. Staging both sections then committing once is the fix for a person in both lists (two Saves → the
+    // second could be dropped by the framework's no-retry writer; see CommitInviteConfig).
     private void RemoveFromInviteList(string uid)
     {
         if (string.IsNullOrEmpty(uid)) return;
         bool p = _invPartyUids.Remove(uid), s = _invIntUids.Remove(uid), r = _invRosterUids.Remove(uid);
         if (!p && !s && !r) return;
 
-        _cfg.Set("invite_roster_uids", _invRosterUids);   // persisted by whichever save below runs
-        if (p) SavePartyInvite();
-        if (s) SaveIntInvite();
-        if (!p && !s) { _cfg.Save(); PushWantedNames(); }  // roster-only person: no Lua push, just persist + re-view
+        _cfg.Set("invite_roster_uids", _invRosterUids);
+        if (p) StagePartyInvite();
+        if (s) StageIntInvite();
+        CommitInviteConfig();
     }
 
+    // All three lists staged, ONE save. This was the observed data-loss path: two section Saves back-to-back left
+    // invite_interaction_uids un-cleared on disk while memory showed "Players (0)".
     private void ClearAllInviteLists()
     {
         _invPartyUids.Clear();
         _invIntUids.Clear();
         _invRosterUids.Clear();
-        _cfg.Set("invite_roster_uids", _invRosterUids);   // persisted by the section saves below
-        SavePartyInvite();
-        SaveIntInvite();
+        _cfg.Set("invite_roster_uids", _invRosterUids);
+        StagePartyInvite();
+        StageIntInvite();
+        CommitInviteConfig();
     }
 }
