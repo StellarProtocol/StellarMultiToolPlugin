@@ -11,9 +11,9 @@ namespace Stellar.MultiTool;
 // Layout, top to bottom: "Party Requests" (one approve-all join-request toggle — not list-related), then "Auto-Accept
 // from Listed Players" (Party invites + Social invites toggles), then ONE "Players" roster where each person has a
 // Party switch and a Social switch (Plugin.InviteRoster.cs — the two per-system uid-sets plus a roster-only list for
-// people with both off). The Social
-// toggle/uid-set drives BOTH the co-op-emote (multaction) invite AND both ride-together (vehicle/mount) directions — one
-// shared rule set (the existing invite_interaction_* config + __stellar_inv_int_* globals); no separate mount config.
+// people with both off; rows keep a stable order-added, invite_player_order, so a switch flip never moves a row).
+// The Social toggle/uid-set drives BOTH the co-op-emote (multaction) invite AND both ride-together (vehicle/mount)
+// directions — one shared rule set (the existing invite_interaction_* config + __stellar_inv_int_* globals); no separate mount config.
 //
 // WHITELIST ONLY: party + social auto-accept ONLY the ticked uids (never mass-accept strangers). The old
 // Blacklist/Whitelist mode dropdowns are gone; InviteAutoAccept's Set* API still takes a whitelist flag, so we always
@@ -70,6 +70,9 @@ public sealed partial class Plugin
         // both uid-sets are loaded so anyone with a switch on is dropped from it.
         _invRosterUids     = _cfg.Get<List<string>>("invite_roster_uids", null) ?? new List<string>();
         NormalizeRosterOnly();
+        // Display order (invite_player_order): seeded from the current grouped order on first load, then reconciled
+        // against the three lists — must run after all of them are loaded + normalised (Plugin.InviteRoster.cs).
+        LoadInviteOrder();
 
         _invite = new InviteAutoAccept(_services);
         _invite.SetParty(_invPartyEnabled, InviteWhitelistOnly, _invPartyUids);
@@ -208,8 +211,9 @@ public sealed partial class Plugin
 
     // Fixed row pool reused across logical rows (_invRosterFirst = the window's first logical index, set by OnWindow).
     // Every lambda re-resolves its uid through RosterAt(first + slot), so a pool slot never acts on a stale person.
-    // That matters because rows shift: ✕ rebuilds _invRosterView synchronously inside RemoveFromInviteList (and a
-    // switch flip can reorder party → social → roster-only), so a different person slides into this slot. The framework
+    // That matters because rows shift: ✕ rebuilds _invRosterView synchronously inside RemoveFromInviteList, so a
+    // different person slides into this slot (a switch flip no longer reorders — the stored invite_player_order keeps
+    // each row where it was added, Plugin.InviteRoster.cs — but the click-time resolve stays as the guard). The framework
     // toggle is a Button whose click runs set(!get()) once — both resolve the uid at click time (the person actually
     // shown), and the per-frame binding only re-reads Get for the visual, never calls Set — so a shift can't flip the
     // next person's switch. The ✕ likewise resolves its uid at click time.
