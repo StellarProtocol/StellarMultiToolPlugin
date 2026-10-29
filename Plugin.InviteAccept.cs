@@ -248,17 +248,55 @@ public sealed partial class Plugin
                            on => { if (Uid() is { } u) SetInviteSwitch(u, social: false, on); }),
                 SwitchCell(() => Uid() is { } u && InSocial(u),
                            on => { if (Uid() is { } u) SetInviteSwitch(u, social: true, on); }),
-                // Same inner-RowElement trick as SwitchCell so the cell doesn't stretch the button across the column.
+                // Same inner-RowElement trick as SwitchCell so the cell doesn't stretch the icon across the column.
                 new CellElement(new RowElement(new HudElement[]
                     {
-                        new ButtonElement(Label: () => "✕",
-                            OnClick: () => { if (Uid() is { } u) RemoveFromInviteList(u); }, Width: 24f),
+                        RemoveIcon(slot, Uid, () => { if (Uid() is { } u) RemoveFromInviteList(u); }),
                     }, Justify: RowJustify.Right),
                     Width: InviteRemoveColW),
             }, Gap: 4f), TileColor);
         }
         return pool;
     }
+
+    // Icon-only ✕: at rest just a MenuMuted glyph (no border/fill); on hover a red glyph on a soft red rounded wash.
+    // Pill technique: a Bubble whose FillColorFn follows a per-slot hover flag, around a SelectableElement.Bare (Bare =
+    // no tint/padding of its own, so the selectable's default hover wash can't stack with the red one). The strut row
+    // pins it to ~24×24 (2×3 + glyph wide, 20 + 2×2 tall), the old ✕ button's footprint, so the columns and header don't
+    // shift; the row's MiddleLeft alignment keeps it vertically centred.
+    // ⚠️ Pooled row: the flag is keyed per pool SLOT and reset whenever the slot shows a different uid (a ✕ click
+    // slides the next person under the pointer; they must not inherit a red hover state until the pointer re-enters).
+    private static readonly ColorRgba RemoveWash  = Rgb(0xff4d4f, 0.22f);
+    private static readonly ColorRgba RemoveGlyph = Rgb(0xff8a8b);
+    private readonly bool[]    _invRemoveHover    = new bool[InviteUidPoolSize];
+    private readonly string?[] _invRemoveHoverUid = new string?[InviteUidPoolSize];
+
+    private bool RemoveHovered(int slot, Func<string?> uid)
+    {
+        var u = uid();
+        if (u != _invRemoveHoverUid[slot]) { _invRemoveHoverUid[slot] = u; _invRemoveHover[slot] = false; }
+        return _invRemoveHover[slot];
+    }
+
+    private HudElement RemoveIcon(int slot, Func<string?> uid, Action onClick) => new BubbleElement(
+        new SelectableElement(new RowElement(new HudElement[]
+            {
+                new SpacerElement(3f, 20f),
+                new TextElement(() => "✕", NoWrap: true,
+                    Color: () => RemoveHovered(slot, uid)
+                        ? EnsureContrast(RemoveGlyph, Over(RemoveWash, TileColor()), 3f)
+                        : MutedColor()),
+                new SpacerElement(3f, 20f),
+            }, Gap: 0.01f, Justify: RowJustify.Center),
+            OnClick: onClick)
+        {
+            Bare = true,
+            OnHover = over => { _invRemoveHover[slot] = over; _invRemoveHoverUid[slot] = uid(); },
+        })
+    {
+        FillColorFn = () => RemoveHovered(slot, uid) ? RemoveWash : Transparent,
+        CornerRadius = 4f, PaddingX = 2f, PaddingY = 2f,
+    };
 
     // A toggle capsule centred in a fixed-width column. The inner RowElement matters: CellElement force-expands its
     // child's width, which would stretch the 30px capsule across the column; a RowElement's HLG keeps it intrinsic
