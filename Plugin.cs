@@ -64,7 +64,24 @@ public sealed partial class Plugin : IStellarPlugin
           // Gate the MultiTool launcher tile to the in-world phase.
           ShouldShow = () => _services.ClientState.Phase == GamePhase.World }));
 
+        _services.ClientState.Logout += OnLogoutHideWindows;
+
         _services.Log.Info("[MultiTool] constructed");
+    }
+
+    // Logout → close every MultiTool window, so none lingers through the logout transition (the phase stays World until
+    // the login view appears, so ShouldRender alone keeps them up meanwhile) and none pops back open at the next login
+    // (Visible would otherwise survive). SYNCHRONOUS on purpose: Update is world-gated, so an IFramework.Post from here
+    // would only run at the next login (Game-Phases-and-Tick-Gating.md §4). Raised once on the main thread.
+    private void OnLogoutHideWindows()
+    {
+        foreach (var w in _windows)
+            try { w.SetVisible(false); } catch { }
+        // Stop any centre-settle still ticking (it would otherwise resume at the next login).
+        try { DisposeHub(); } catch { }
+        try { _invAddCenter?.Stop(); } catch { }
+        try { _invCardCenter?.Stop(); } catch { }
+        try { _invClearCenter?.Stop(); } catch { }
     }
 
     // Registers a hidden, draggable menu window (no launcher tile). Windows are staggered so they don't stack.
@@ -86,8 +103,11 @@ public sealed partial class Plugin : IStellarPlugin
                 Category:    WindowCategory.Tools,
                 Style:       WindowPanelStyle.GlassMenu)
             { Draggable = true, Closable = true, StartVisible = false,
-              // Dev/utility tool: show at title/menus, but hide during loading screens.
-              ShouldRender = () => (_services.ClientState.UiState & GameUIState.Loading) == 0 },
+              // In-world only, and hidden during loading screens (Game-Phases-and-Tick-Gating.md §5). Every MultiTool
+              // tool is an in-world tool; showing at title/menus left open windows over the login screen after logout.
+              // The phase stays World until the login view appears (§4), so logout ALSO hides them (OnLogoutHideWindows).
+              ShouldRender = () => _services.ClientState.Phase == GamePhase.World
+                                && (_services.ClientState.UiState & GameUIState.Loading) == 0 },
             Root: root,
             OnClose: () => w!.SetVisible(false)));
         _windows.Add(w);
@@ -98,6 +118,7 @@ public sealed partial class Plugin : IStellarPlugin
 
     public void Dispose()
     {
+        try { _services.ClientState.Logout -= OnLogoutHideWindows; } catch { }
         DisposeHub();
         DisposeBandMute();
         DisposeProfileCardAdd();
