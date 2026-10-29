@@ -28,9 +28,12 @@ public sealed partial class Plugin
 
     // More cards than this → the card column scrolls at a fixed height that fits exactly this many cards.
     private const int   HubMaxVisibleCards = 5;
-    // Card pitch: 40px icon + the SelectableElement's 4px vertical padding each side. Estimated (no runtime
-    // measurement from a plugin) — if a 5-card scroll shows a sliver of a 6th card, adjust here.
-    private const float HubCardHeight = 48f;
+    // Card pitch, PINNED for every card: a HubCardStrut-tall spacer in the card row (rows align MiddleLeft, so the icon
+    // and text stay vertically centred) + the SelectableElement's 4px vertical padding each side = 56. Pinned because the
+    // cards differ naturally (in-game: Mute 48px vs Auto-Accept 56px — the chip row is taller than plain status text),
+    // which cut the 5th card of the fixed-height scroll in half.
+    private const float HubCardStrut  = 48f;
+    private const float HubCardHeight = HubCardStrut + 8f;
     private const float HubCardGap    = 8f;
 
 #if DEBUG
@@ -113,7 +116,7 @@ public sealed partial class Plugin
             // Bold (styled/TMP path) so FontSize applies, and a glyph missing from the plain menu font can't fall back
             // to a taller OS font and grow the row.
             new TextElement(() => "›", Color: () => CaptionColor, NoWrap: true, FontSize: 18) { Bold = true },
-            new SpacerElement(2f),
+            new SpacerElement(2f, HubCardStrut),   // right margin + the height strut that pins every card to HubCardHeight
         }, Gap: 10f),
         OnClick: () => OpenHubTool(t)))
     {
