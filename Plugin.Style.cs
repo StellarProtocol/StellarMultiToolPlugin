@@ -81,24 +81,57 @@ public sealed partial class Plugin
     // A muted subtitle line for a ToolHeader (dialogs whose header has no live status).
     private static HudElement MutedLine(Func<string> text) => new TextElement(text, Color: () => CaptionColor);
 
-    // A destructive (red) button. MenuButtonStyle only has Outline / Filled / Glass (no custom fill), so this is a red
-    // Bubble around a SelectableElement — the hub-card pattern: the selectable's hover wash sits on the red fill. Its
-    // content is pinned to `width` (a fixed-width spacer under the centred label) so it can share a Row equally with a
-    // ButtonElement of Width = width + the selectable's 2×6 px padding.
-    private static readonly ColorRgba DangerFill = Rgb(0xff4d4f, 0.85f);
+    // ── pill buttons ──────────────────────────────────────────────────────────────────────────────────────────────
+    // Every labelled button is ONE build: a fill-tinted Bubble around a SelectableElement (the hub-card pattern; the
+    // selectable's hover wash sits on the fill). MenuButtonStyle only has Outline / Filled / Glass with no custom fill,
+    // so a red or grey button can't be a ButtonElement — and mixing the two builds gave different heights in one row
+    // (ButtonElement 23 px vs this 30 px, in-game). ONE fixed height for every pill: a PillStrutHeight-tall spacer on
+    // each side of the label + the selectable's 4 + 4 vertical padding (ChatTools' proven PillBubble pattern), with the
+    // label at bold 13 so its own line height stays under the strut and can't grow the pill.
+    //
+    // Width: a pill directly in a Column (or stretched by a weighted Cell) FILLS it, label centred. `width` > 0 fixes the
+    // label box (centred, so the pill's natural width = width + 2×PillPadX + the selectable's 2×6) — used for a pill
+    // sitting in a Row ("Look up") and for equal pairs: weighted cells only split equally when both children prefer the
+    // same width (WindowBuilder-Patterns.md "Weight is NOT an equal split"). Bubble caps at its parent width (MaxWidth 0),
+    // but every pill here sits in a Column / stretched Cell / content Row, never a natural Cell sized from the bubble, so a
+    // live label change (Band Mute's "Unmute all" ↔ "Clear allow-list") can't hit the shrink-only ratchet.
+    private const float PillStrutHeight = 20f;   // + the Selectable's 4 + 4 = a 28 px pill
+    private const float PillPadX        = 6f;    // strut width; + the Selectable's own 6 = 12 each side of a label
+    private const float PillPairWidth   = 96f;   // label box for the two-in-a-row pairs (both halves prefer the same)
 
-    private static HudElement DangerButton(string label, Action onClick, float width) => new BubbleElement(
-        new SelectableElement(new ColumnElement(new HudElement[]
-        {
+    private static readonly ColorRgba PrimaryFill = Rgb(0xc8508f);         // the accent ("Filled" button) fill
+    private static readonly ColorRgba NeutralFill = Rgb(0x4a3b52);         // grey; lighter than tiles (#3d3045) + panels
+    private static readonly ColorRgba DangerFill  = Rgb(0xff4d4f, 0.85f);
+    private static readonly ColorRgba PillWhite   = new(1f, 1f, 1f);
+    private static readonly ColorRgba PillText    = Rgb(0xe8dcef);
+
+    private static HudElement PillButton(Func<string> label, ColorRgba fill, ColorRgba text, Action onClick,
+        float width = 0f) => new BubbleElement(new SelectableElement(
             new RowElement(new HudElement[]
             {
-                new TextElement(() => label, Color: () => new ColorRgba(1f, 1f, 1f), NoWrap: true) { Bold = true },
-            }, Justify: RowJustify.Center),
-            new SpacerElement(width, 1f),
-        }, Gap: 0.01f), OnClick: onClick))
+                new SpacerElement(PillPadX, PillStrutHeight),
+                new TextElement(label, Color: () => text, Width: width, Align: TextAlign.Center, NoWrap: true,
+                    FontSize: 13) { Bold = true },
+                new SpacerElement(PillPadX, PillStrutHeight),
+            }, Gap: 0.01f, Justify: RowJustify.Center),
+            OnClick: onClick))
+        {
+            FillColor = fill, PaddingX = 0f, PaddingY = 0f,
+        };
+
+    private static HudElement PrimaryButton(Func<string> label, Action onClick, float width = 0f) =>
+        PillButton(label, PrimaryFill, PillWhite, onClick, width);
+    private static HudElement NeutralButton(Func<string> label, Action onClick, float width = 0f) =>
+        PillButton(label, NeutralFill, PillText, onClick, width);
+    private static HudElement DangerButton(Func<string> label, Action onClick, float width = 0f) =>
+        PillButton(label, DangerFill, PillWhite, onClick, width);
+
+    // Two pills side by side at equal widths filling the row (see the width note above).
+    private static HudElement PillPair(HudElement left, HudElement right) => new RowElement(new HudElement[]
     {
-        FillColor = DangerFill, PaddingX = 0f, PaddingY = 0f,
-    };
+        new CellElement(left,  Weight: 1f),
+        new CellElement(right, Weight: 1f),
+    }, Gap: 8f);
 
     // A dark rounded panel: optional small UPPERCASE caption (live) + optional right-aligned muted hint (live), then
     // the children. The Bubble sits directly in the window Column, which force-expands its width → it FILLS the

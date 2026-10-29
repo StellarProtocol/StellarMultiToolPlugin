@@ -200,19 +200,12 @@ public sealed partial class Plugin
             Pool:      BuildRosterPool(),
             OnWindow:  f => _invRosterFirst = f,
             Height:    InviteListHeight),
-        // Equal halves: CellElement Weight alone is NOT an equal split (each cell = its content's preferred width + an
-        // equal share of the leftover, WindowBuilder-Patterns.md), so both buttons get the SAME fixed preferred Width
-        // and the cells' equal leftover shares keep them equal; the cell then stretches each button across its half.
-        new RowElement(new HudElement[]
-        {
-            new CellElement(new ButtonElement(Label: () => "Add player…", OnClick: OpenInviteAddDialog,
-                Style: MenuButtonStyle.Filled, Width: InviteActionMinW), Weight: 1f),
+        // Equal halves: both pills share PillPairWidth so the weighted cells split equally (Plugin.Style.cs PillPair).
+        PillPair(
+            PrimaryButton(() => "Add player…", OpenInviteAddDialog, PillPairWidth),
             // Asks first — the confirm window runs the actual ClearAllInviteLists (Plugin.InviteClearConfirm.cs).
-            new CellElement(new ButtonElement(Label: () => "Clear all", OnClick: OpenInviteClearConfirm,
-                Width: InviteActionMinW), Weight: 1f),
-        }, Gap: 8f));
+            NeutralButton(() => "Clear all", OpenInviteClearConfirm, PillPairWidth)));
 
-    private const float InviteActionMinW = 100f;   // shared preferred width of the two action buttons (see above)
     private const float InviteTilePadX   = 6f;     // roster tile inner padding (header uses the same, so columns align)
 
     // A roster row's raised tile (#3d3045), or — with a transparent fill — the header's matching padding.

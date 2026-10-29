@@ -178,7 +178,8 @@ public sealed partial class Plugin
             {
                 new InputElement(Get: () => _invAddDraft, Submit: _ => InviteAddLookup(),
                                  OnChange: s => _invAddDraft = s, Width: 180f),
-                new ButtonElement(Label: () => "Look up", OnClick: InviteAddLookup, Width: 120f),
+                // 96 label box + 2×6 strut + 2×6 selectable padding = the old 120 px button.
+                NeutralButton(() => "Look up", InviteAddLookup, 96f),
             }, Gap: 6f),
 
             // Before a look-up: the hint. After: the avatar+name+level card. Keyed on LookupActive() so the switch
@@ -186,8 +187,7 @@ public sealed partial class Plugin
             new ConditionalElement(() => !LookupActive(),
                 new TextElement(InviteAddLookupHint, Color: () => (ColorRgba?)_services.Theme.Colors.TextMuted)),
             new ConditionalElement(() => LookupActive(), BuildLookupCard()),
-            new ButtonElement(Label: () => "Choose this player…", OnClick: InviteAddCommit,
-                Style: MenuButtonStyle.Filled)),
+            PrimaryButton(() => "Choose this player…", InviteAddCommit)),
 
         // Card route: instructions only — the card's own button does the adding (Plugin.ProfileCardAdd.cs). TextElement
         // wraps by default, so the long line folds to the panel width.
@@ -195,6 +195,6 @@ public sealed partial class Plugin
             new TextElement(() => "Open any player's name card (click their name or avatar), then press Auto-Accept in the card's button row."),
             BuildHowToImage()),
 
-        new ButtonElement(Label: () => "Close", OnClick: CloseInviteAdd),
+        NeutralButton(() => "Close", CloseInviteAdd),
     }, Gap: 8f);
 }

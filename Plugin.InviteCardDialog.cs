@@ -84,7 +84,7 @@ public sealed partial class Plugin
                     new TextElement(() => "Social invites (co-op emote + ride together)"),
                 }, Gap: 6f)),
 
-            new ButtonElement(Label: () => "Close", OnClick: CloseInviteCardDialog),
+            NeutralButton(() => "Close", CloseInviteCardDialog),
         }, Gap: 8f);
     }
 }

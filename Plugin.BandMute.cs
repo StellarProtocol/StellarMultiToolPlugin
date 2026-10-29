@@ -128,7 +128,7 @@ public sealed partial class Plugin
                 Pool:      BuildMuteHeardPool(),
                 OnWindow:  first => _muteHeardFirst = first,
                 Height:    132f),
-            new ButtonElement(Label: () => "Clear heard list", OnClick: InstrumentMutePatch.ForgetAll)),
+            NeutralButton(() => "Clear heard list", InstrumentMutePatch.ForgetAll)),
 
         // ── the durable rule set ──
         SectionPanel(() => $"{(_bandMuteAll ? "Allowed" : "Muted")} ({InstrumentMutePatch.Picks().Count})",
@@ -141,8 +141,8 @@ public sealed partial class Plugin
                 Pool:      BuildMutePickPool(),
                 OnWindow:  first => _mutePickFirst = first,
                 Height:    110f),
-            new ButtonElement(Label: () => _bandMuteAll ? "Clear allow-list" : "Unmute all",
-                OnClick: ClearBandMutePicks)),
+            // Live label (mode-dependent); full panel width, so the Bubble's width never follows the label.
+            NeutralButton(() => _bandMuteAll ? "Clear allow-list" : "Unmute all", ClearBandMutePicks)),
     }, Gap: 8f);
 
     // Live status line, shared by the hub card and this window's header (one builder → they can't drift).
