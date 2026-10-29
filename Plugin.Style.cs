@@ -63,16 +63,42 @@ public sealed partial class Plugin
 
     // Tool title block: icon + bold title over the tool's live status line. The hub card and the tool window both
     // build their status from the SAME builder method, so the two can't drift.
-    private static HudElement ToolHeader(Func<byte[]?> icon, string title, HudElement status) => new RowElement(
+    private static HudElement ToolHeader(Func<byte[]?> icon, string title, HudElement status) =>
+        ToolHeader(icon, () => title, status);
+
+    // Live-title variant (the per-player dialog's name, which upgrades from the uid once it resolves).
+    private static HudElement ToolHeader(Func<byte[]?> icon, Func<string> title, HudElement status) => new RowElement(
         new HudElement[]
         {
             IconBox(icon, ToolIconSize),
             new ColumnElement(new HudElement[]
             {
-                new TextElement(() => title, Emphasis: true, NoWrap: true),
+                new TextElement(title, Emphasis: true, NoWrap: true),
                 status,
             }, Gap: 2f),
         }, Gap: 10f);
+
+    // A muted subtitle line for a ToolHeader (dialogs whose header has no live status).
+    private static HudElement MutedLine(Func<string> text) => new TextElement(text, Color: () => CaptionColor);
+
+    // A destructive (red) button. MenuButtonStyle only has Outline / Filled / Glass (no custom fill), so this is a red
+    // Bubble around a SelectableElement — the hub-card pattern: the selectable's hover wash sits on the red fill. Its
+    // content is pinned to `width` (a fixed-width spacer under the centred label) so it can share a Row equally with a
+    // ButtonElement of Width = width + the selectable's 2×6 px padding.
+    private static readonly ColorRgba DangerFill = Rgb(0xff4d4f, 0.85f);
+
+    private static HudElement DangerButton(string label, Action onClick, float width) => new BubbleElement(
+        new SelectableElement(new ColumnElement(new HudElement[]
+        {
+            new RowElement(new HudElement[]
+            {
+                new TextElement(() => label, Color: () => new ColorRgba(1f, 1f, 1f), NoWrap: true) { Bold = true },
+            }, Justify: RowJustify.Center),
+            new SpacerElement(width, 1f),
+        }, Gap: 0.01f), OnClick: onClick))
+    {
+        FillColor = DangerFill, PaddingX = 0f, PaddingY = 0f,
+    };
 
     // A dark rounded panel: optional small UPPERCASE caption (live) + optional right-aligned muted hint (live), then
     // the children. The Bubble sits directly in the window Column, which force-expands its width → it FILLS the

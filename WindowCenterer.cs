@@ -43,6 +43,16 @@ internal sealed class WindowCenterer
     // Screen (canvas) centre — the default target.
     public static (float X, float Y)? CanvasCentre(float cw, float ch) => (cw / 2f, ch / 2f);
 
+    // Centre of `parent`'s CURRENT rect (canvas units), or null while it isn't shown / laid out so the centerer keeps
+    // trying. For a child dialog that opens centred on the window it was opened from.
+    public static Func<float, float, (float X, float Y)?> CentreOf(IWindowControl parent) => (_, _) =>
+    {
+        if (!parent.IsShown) return null;
+        var r = parent.Rect;
+        if (r.Width <= 1f || r.Height <= 1f) return null;
+        return (r.X + r.Width / 2f, r.Y + r.Height / 2f);
+    };
+
     public void Begin()
     {
         _ticks = Budget;

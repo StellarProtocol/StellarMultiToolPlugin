@@ -96,6 +96,7 @@ public sealed partial class Plugin : IStellarPlugin
         DisposeProfileCardAdd();
         DisposeInviteCardDialog();
         DisposeInviteClearConfirm();
+        DisposeInviteAddDialog();
         DisposeInviteAccept();
         foreach (var l in _launchers) l.Dispose();
         foreach (var w in _windows) w.Remove();

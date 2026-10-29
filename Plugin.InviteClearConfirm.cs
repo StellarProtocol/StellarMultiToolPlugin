@@ -21,7 +21,7 @@ public sealed partial class Plugin
     private WindowCenterer _invClearCenter = null!;   // bounded re-centre on the main window's centre (WindowCenterer.cs)
     private bool _invClearWatchSubscribed;
     private bool _invClearSeenShown;   // the confirm has mounted since this open (see OnClearWatchTick)
-    private const float InviteClearWidth = 360f;   // small dialog: fits the two 150px buttons + gap + panel padding
+    private const float InviteClearWidth = 360f;   // small dialog: the question panel + one row of two equal buttons
 
     private void InitInviteClearConfirm()
     {
@@ -84,14 +84,23 @@ public sealed partial class Plugin
         CloseInviteClearConfirm();
     }
 
+    // Layout per the approved mockup (multitool-dialogs.html): a panel with the question + consequence, then ONE row of
+    // equal halves — red "Clear all" (DangerButton, Plugin.Style.cs) and "Cancel". Equal because both cells hold the
+    // same preferred width (danger content ClearBtnInnerW + the selectable's 2×6 padding == Cancel's fixed Width) and
+    // weighted cells share the leftover equally (Weight alone is not an equal split — WindowBuilder-Patterns.md).
+    private const float ClearBtnInnerW = 88f;
+
     private HudElement BuildInviteClearRoot() => new ColumnElement(new HudElement[]
     {
-        // Live N: re-read each frame, so it matches the roster even if it changed while the confirm was open.
-        new TextElement(() => $"Remove all {_invRosterView.Count} players from the auto-accept list?"),
+        SectionPanel(null, null,
+            // Live N: re-read each frame, so it matches the roster even if it changed while the confirm was open.
+            new TextElement(() => $"Remove all {_invRosterView.Count} players?", Emphasis: true),
+            MutedLine(() => "Their Party and Social settings are deleted too. This can't be undone.")),
         new RowElement(new HudElement[]
         {
-            new ButtonElement(Label: () => "Clear all", OnClick: ConfirmClearAllInviteLists, Width: 150f),
-            new ButtonElement(Label: () => "Cancel",    OnClick: CloseInviteClearConfirm,    Width: 150f),
+            new CellElement(DangerButton("Clear all", ConfirmClearAllInviteLists, ClearBtnInnerW), Weight: 1f),
+            new CellElement(new ButtonElement(Label: () => "Cancel", OnClick: CloseInviteClearConfirm,
+                Width: ClearBtnInnerW + 12f), Weight: 1f),
         }, Gap: 8f),
     }, Gap: 8f);
 }
