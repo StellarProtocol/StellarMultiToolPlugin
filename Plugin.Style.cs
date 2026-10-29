@@ -208,8 +208,18 @@ public sealed partial class Plugin
                  () => MutedColor() with { A = 0.15f }));
 
     // The fixed-width cell caps the bubble at ChipWidth (MaxWidth 0 = parent width) and stretches it to exactly that,
-    // so both variants are identical in size; the centred text sits in the middle of the pill.
+    // so both variants are the same WIDTH. HEIGHT is pinned separately: the bubble hugs its content's height, and bold
+    // (on) text is taller than regular (off) text, so an off chip came out visibly shorter and the row jumped on a toggle
+    // (in-game). A ChipStrutHeight-tall zero-width spacer beside the label pins both variants to strut + 2×PaddingY = 24,
+    // the on chip's measured height (the 56 px Auto-Accept hub card = 8 + title + 2 + 24), so the card height is unchanged.
+    private const float ChipStrutHeight = 22f;
+
     private static HudElement ChipPill(TextElement text, Func<ColorRgba> fill) => new CellElement(
-        new BubbleElement(text) { FillColorFn = () => fill(), PaddingX = 4f, PaddingY = 1f },
+        new BubbleElement(new RowElement(new HudElement[]
+            {
+                new SpacerElement(0f, ChipStrutHeight),   // width 0 + height > 0 = a non-flexible height strut
+                text,
+            }, Gap: 0.01f, Justify: RowJustify.Center))
+        { FillColorFn = () => fill(), PaddingX = 4f, PaddingY = 1f },
         Width: ChipWidth);
 }
