@@ -131,35 +131,43 @@ public sealed partial class Plugin
     }
 
     // ── window ────────────────────────────────────────────────────────────────────────────────────────────────────
+    // Layout per the approved mockup (multitool-tools.html): header (icon + title + the hub card's live status chips),
+    // then the three sections as dark captioned panels (Plugin.Style.cs).
     private HudElement BuildInviteAcceptRoot() => new ColumnElement(new HudElement[]
     {
+        ToolHeader(AutoAcceptIconPng, "Auto-Accept Invites", InviteStatus()),
         BuildPartyRequestsSection(),
-
-        new SeparatorElement(),
-
         BuildListedAutoAcceptSection(),
-
-        new SeparatorElement(),
-
         BuildPlayersSection(),
-    }, Gap: 10f);
+    }, Gap: 8f);
+
+    // Live status, shared by the hub card and this window's header (one builder → they can't drift): one chip per
+    // system (lit in its own colour when on, grey when off), then the roster size — or "all off".
+    private HudElement InviteStatus() => new RowElement(new HudElement[]
+    {
+        StatusChip("Party",  ChipParty,  () => _invPartyEnabled),
+        StatusChip("Social", ChipSocial, () => _invIntEnabled),
+        StatusChip("Join",   ChipJoin,   () => _invPartyApplyEnabled),
+        new TextElement(InviteStatusTail, Color: () => CaptionColor, NoWrap: true),
+    }, Gap: 4f);
+
+    private string InviteStatusTail()
+    {
+        if (!_invPartyEnabled && !_invIntEnabled && !_invPartyApplyEnabled) return "· all off";
+        int n = _invRosterView.Count;
+        return n == 1 ? "· 1 player" : $"· {n} players";
+    }
 
     // (4) Party JOIN REQUESTS — the inverse of Party invites (someone applying to join MY party). Its own section
     // because it has nothing to do with the roster: no per-player switch, one toggle that approves EVERY request.
-    private HudElement BuildPartyRequestsSection() => new ColumnElement(new HudElement[]
-    {
-        new TextElement(() => "Party Requests", Emphasis: true),
-        InviteToggleRow("Accept all party requests", () => _invPartyApplyEnabled, OnInvitePartyApplyToggle),
-    }, Gap: 8f);
+    private HudElement BuildPartyRequestsSection() => SectionPanel(() => "Party requests", null,
+        InviteToggleRow("Accept all party requests", () => _invPartyApplyEnabled, OnInvitePartyApplyToggle));
 
     // The two list-driven systems: they only ever accept players ticked in the roster below (whitelist-only) — the
-    // heading says so, so the labels don't repeat "(listed players)".
-    private HudElement BuildListedAutoAcceptSection() => new ColumnElement(new HudElement[]
-    {
-        new TextElement(() => "Auto-Accept from Listed Players", Emphasis: true),
+    // caption says so, so the labels don't repeat "(listed players)".
+    private HudElement BuildListedAutoAcceptSection() => SectionPanel(() => "From listed players", null,
         InviteToggleRow("Party invites", () => _invPartyEnabled, OnInvitePartyToggle),
-        InviteToggleRow("Social invites (co-op emote + ride together)", () => _invIntEnabled, OnInviteIntToggle),
-    }, Gap: 8f);
+        InviteToggleRow("Social invites (co-op emote + ride together)", () => _invIntEnabled, OnInviteIntToggle));
 
     // Toggle capsule + label. Shared by all three toggle rows so their layouts can't drift.
     private static HudElement InviteToggleRow(string label, Func<bool> get, Action<bool> set) => new RowElement(
@@ -169,33 +177,47 @@ public sealed partial class Plugin
             new TextElement(() => label),
         }, Gap: 6f);
 
-    // The ONE roster: title "Players (N)" + "Add player…" + table header + divider + rows (Name (uid) · Party · Social ·
-    // ✕) + Clear all. Turning both switches off keeps the row (roster-only); only ✕ / Clear all delete. The header is
-    // styled as a header (bold + muted, divider under it) so it doesn't read as a data row; the count lives in the
-    // section title, not the header.
-    private HudElement BuildPlayersSection() => new ColumnElement(new HudElement[]
-    {
-        new TextElement(() => $"Players ({_invRosterView.Count})", Emphasis: true),
-        new ButtonElement(Label: () => "Add player…", OnClick: OpenInviteAddDialog, Width: 320f),
+    // The ONE roster panel: caption "Players (N)" + table header + divider + rows (Name (uid) · Party · Social · ✕) +
+    // one row with "Add player…" and "Clear all". Turning both switches off keeps the row (roster-only); only ✕ /
+    // Clear all delete. The header is styled as a header (bold + muted, divider under it) so it doesn't read as a data
+    // row; the count lives in the caption, not the header.
+    private HudElement BuildPlayersSection() => SectionPanel(() => $"Players ({_invRosterView.Count})", null,
         // Header cells mirror the row cells' widths exactly (incl. the empty ✕ column + same Gap), and the two switch
         // labels are centred by the SAME inner-Row mechanism as SwitchCell — so label and capsule share one centre line.
-        new RowElement(new HudElement[]
+        // The transparent bubble carries the SAME horizontal padding as each row's tile (RosterTile) so the header
+        // columns stay over the row columns.
+        RosterTile(new RowElement(new HudElement[]
         {
             new CellElement(InviteHeaderText(() => "Player"), Weight: 1f),
             HeaderSwitchCell("Party"),
             HeaderSwitchCell("Social"),
             new CellElement(new TextElement(() => ""), Width: InviteRemoveColW),
-        }, Gap: 4f),
-        new SeparatorElement(),   // same themed divider the window uses between sections
+        }, Gap: 4f), Transparent),
+        new SeparatorElement(),   // the themed divider under the header
         new VirtualListElement(
             Count:     () => _invRosterView.Count,
             RowHeight: InviteRowHeight,
             Pool:      BuildRosterPool(),
             OnWindow:  f => _invRosterFirst = f,
             Height:    InviteListHeight),
-        // Asks first — the confirm window runs the actual ClearAllInviteLists (Plugin.InviteClearConfirm.cs).
-        new ButtonElement(Label: () => "Clear all", OnClick: OpenInviteClearConfirm, Width: 320f),
-    }, Gap: 8f);
+        // Equal halves: CellElement Weight alone is NOT an equal split (each cell = its content's preferred width + an
+        // equal share of the leftover, WindowBuilder-Patterns.md), so both buttons get the SAME fixed preferred Width
+        // and the cells' equal leftover shares keep them equal; the cell then stretches each button across its half.
+        new RowElement(new HudElement[]
+        {
+            new CellElement(new ButtonElement(Label: () => "Add player…", OnClick: OpenInviteAddDialog,
+                Style: MenuButtonStyle.Filled, Width: InviteActionMinW), Weight: 1f),
+            // Asks first — the confirm window runs the actual ClearAllInviteLists (Plugin.InviteClearConfirm.cs).
+            new CellElement(new ButtonElement(Label: () => "Clear all", OnClick: OpenInviteClearConfirm,
+                Width: InviteActionMinW), Weight: 1f),
+        }, Gap: 8f));
+
+    private const float InviteActionMinW = 100f;   // shared preferred width of the two action buttons (see above)
+    private const float InviteTilePadX   = 6f;     // roster tile inner padding (header uses the same, so columns align)
+
+    // A roster row's raised tile (#3d3045), or — with a transparent fill — the header's matching padding.
+    private static HudElement RosterTile(HudElement row, ColorRgba fill) =>
+        new BubbleElement(row) { FillColor = fill, PaddingX = InviteTilePadX, PaddingY = 0f };
 
     // Table-header label: bold + muted so it reads as a header, not a data row. NoWrap keeps it on the row pitch.
     private TextElement InviteHeaderText(Func<string> text) => new TextElement(text,
@@ -224,7 +246,7 @@ public sealed partial class Plugin
         {
             int slot = s;
             string? Uid() => RosterAt(_invRosterFirst + slot);
-            pool[s] = new RowElement(new HudElement[]
+            pool[s] = RosterTile(new RowElement(new HudElement[]
             {
                 // NoWrap: a long name must clip, never wrap — rows sit at a fixed RowHeight pitch, so a 2-line row would
                 // overlap the next one (WindowBuilder-Patterns.md §"Hard-clip a long list row").
@@ -240,7 +262,7 @@ public sealed partial class Plugin
                             OnClick: () => { if (Uid() is { } u) RemoveFromInviteList(u); }, Width: 24f),
                     }, Justify: RowJustify.Right),
                     Width: InviteRemoveColW),
-            }, Gap: 4f);
+            }, Gap: 4f), TileFill);
         }
         return pool;
     }

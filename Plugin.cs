@@ -19,7 +19,7 @@ namespace Stellar.MultiTool;
 //   1. Put it in its own partial `Plugin.<Feature>.cs` with an `Init<Feature>()` that registers its window via
 //      RegisterWindow(...) (and a `Dispose<Feature>()` if it owns patches/hotkeys beyond the window).
 //   2. Call `Init<Feature>()` from the constructor (and `Dispose<Feature>()` from Dispose).
-//   3. Add ONE button for it to BuildHubRoot.
+//   3. Add ONE entry for it to BuildHubTools (Plugin.Hub.cs) — title, icon, status builder, window.
 public sealed partial class Plugin : IStellarPlugin
 {
     public string Name => "MultiTool";
@@ -46,13 +46,13 @@ public sealed partial class Plugin : IStellarPlugin
         // IOException — the second could hit a transient lock on the just-written file and be dropped.
         if (_cfgLoadDirty) { _cfg.Save(); _cfgLoadDirty = false; }
 
-        // The one and only main-menu tile — opens the hub, which links out to the sub-menus.
-        var hub = RegisterWindow("multitool.hub", "MultiTool", 0, BuildHubRoot());
+        // The one and only main-menu tile — opens the hub, which links out to the sub-menus (Plugin.Hub.cs).
+        _hubWindow = RegisterWindow("multitool.hub", "MultiTool", 0, BuildHubRoot());
         _launchers.Add(_services.Launcher.Register(new LauncherEntry(
             Title:   "MultiTool",
             IconPng: LoadIconPng(),
             IconKey: null,
-            OnOpen:  () => hub.SetVisible(true))
+            OnOpen:  () => _hubWindow.SetVisible(true))
         { Group = LauncherGroup.Plugin,
           // Gate the MultiTool launcher tile to the in-world phase.
           ShouldShow = () => _services.ClientState.Phase == GamePhase.World }));
@@ -87,31 +87,11 @@ public sealed partial class Plugin : IStellarPlugin
         return w;
     }
 
-    // The hub window: a single main-menu tile opens this, and its buttons open the sub-menus.
-    private HudElement BuildHubRoot() => new ColumnElement(
-    [
-        new TextElement(() => "MultiTool", Emphasis: true),
-        new ButtonElement(Label: () => "Mute Instruments",
-            OnClick: () => _bandMuteWindow.SetVisible(true), Width: 320f),
-        new ButtonElement(Label: () => "Auto-Accept Invites",
-            OnClick: () => _inviteWindow.SetVisible(true), Width: 320f),
-    ], Gap: 8f);
-
-    private static byte[]? LoadIconPng()
-    {
-        try
-        {
-            using var s = typeof(Plugin).Assembly.GetManifestResourceStream("Stellar.MultiTool.multitool-icon.png");
-            if (s == null) return null;
-            using var ms = new System.IO.MemoryStream();
-            s.CopyTo(ms);
-            return ms.ToArray();
-        }
-        catch { return null; }
-    }
+    private static byte[]? LoadIconPng() => CachedPng("multitool-icon.png");   // Plugin.Style.cs
 
     public void Dispose()
     {
+        DisposeHub();
         DisposeBandMute();
         DisposeProfileCardAdd();
         DisposeInviteCardDialog();
