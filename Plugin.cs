@@ -14,6 +14,8 @@ namespace Stellar.MultiTool;
 //   • Auto-Accept Invites — auto-accept party invites / join requests / social invites (whitelist-only); one Players
 //     roster with per-person Party/Social switches; "Clear all" asks for confirmation.
 //   • Profile-card "Auto-Accept" button — opens a per-player dialog with that person's Party / Social switches.
+//   • Language Unlock — show every text language (and extra voice languages) this client ships in the game's own
+//     Settings > Language; applies from the next game start (moved from MahiruUtility, settings imported once).
 //
 // Adding a tool:
 //   1. Put it in its own partial `Plugin.<Feature>.cs` with an `Init<Feature>()` that registers its window via
@@ -37,7 +39,10 @@ public sealed partial class Plugin : IStellarPlugin
 
         // Sub-menus are registered as hidden windows with NO launcher tile of their own —
         // they are opened from the single hub window below.
-        InitBandMute();       // Band Mute: silence specific other players' band instruments (Plugin.BandMute.cs)
+        // Language Unlock first: its patch must be in place when the game boots its language list (and its one-time
+        // Mahiru settings import must be staged before the single save below) (Plugin.Language.cs).
+        InitLanguageUnlock();
+        InitBandMute();      // Band Mute: silence specific other players' band instruments (Plugin.BandMute.cs)
         InitInviteAccept();   // Auto-Accept Invites: party + interaction invite auto-accept (Plugin.InviteAccept.cs)
         InitProfileCardAdd(); // "Auto-Accept" on the native profile card → per-player dialog — needs the lists (Plugin.ProfileCardAdd.cs)
 
@@ -59,7 +64,24 @@ public sealed partial class Plugin : IStellarPlugin
           // Gate the MultiTool launcher tile to the in-world phase.
           ShouldShow = () => _services.ClientState.Phase == GamePhase.World }));
 
+        _services.ClientState.Logout += OnLogoutHideWindows;
+
         _services.Log.Info("[MultiTool] constructed");
+    }
+
+    // Logout → close every MultiTool window, so none lingers through the logout transition (the phase stays World until
+    // the login view appears, so ShouldRender alone keeps them up meanwhile) and none pops back open at the next login
+    // (Visible would otherwise survive). SYNCHRONOUS on purpose: Update is world-gated, so an IFramework.Post from here
+    // would only run at the next login (Game-Phases-and-Tick-Gating.md §4). Raised once on the main thread.
+    private void OnLogoutHideWindows()
+    {
+        foreach (var w in _windows)
+            try { w.SetVisible(false); } catch { }
+        // Stop any centre-settle still ticking (it would otherwise resume at the next login).
+        try { DisposeHub(); } catch { }
+        try { _invAddCenter?.Stop(); } catch { }
+        try { _invCardCenter?.Stop(); } catch { }
+        try { _invClearCenter?.Stop(); } catch { }
     }
 
     // Registers a hidden, draggable menu window (no launcher tile). Windows are staggered so they don't stack.
@@ -81,8 +103,11 @@ public sealed partial class Plugin : IStellarPlugin
                 Category:    WindowCategory.Tools,
                 Style:       WindowPanelStyle.GlassMenu)
             { Draggable = true, Closable = true, StartVisible = false,
-              // Dev/utility tool: show at title/menus, but hide during loading screens.
-              ShouldRender = () => (_services.ClientState.UiState & GameUIState.Loading) == 0 },
+              // In-world only, and hidden during loading screens (Game-Phases-and-Tick-Gating.md §5). Every MultiTool
+              // tool is an in-world tool; showing at title/menus left open windows over the login screen after logout.
+              // The phase stays World until the login view appears (§4), so logout ALSO hides them (OnLogoutHideWindows).
+              ShouldRender = () => _services.ClientState.Phase == GamePhase.World
+                                && (_services.ClientState.UiState & GameUIState.Loading) == 0 },
             Root: root,
             OnClose: () => w!.SetVisible(false)));
         _windows.Add(w);
@@ -93,6 +118,7 @@ public sealed partial class Plugin : IStellarPlugin
 
     public void Dispose()
     {
+        try { _services.ClientState.Logout -= OnLogoutHideWindows; } catch { }
         DisposeHub();
         DisposeBandMute();
         DisposeProfileCardAdd();
@@ -100,6 +126,7 @@ public sealed partial class Plugin : IStellarPlugin
         DisposeInviteClearConfirm();
         DisposeInviteAddDialog();
         DisposeInviteAccept();
+        DisposeLanguageUnlock();
         foreach (var l in _launchers) l.Dispose();
         foreach (var w in _windows) w.Remove();
     }
