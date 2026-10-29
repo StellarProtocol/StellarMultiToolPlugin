@@ -92,62 +92,69 @@ public sealed partial class Plugin
         catch (Exception ex) { _services.Log.Warning($"[BandMute] resolve tick: {ex.InnerException?.Message ?? ex.Message}"); }
     }
 
+    // Layout per the approved mockup (multitool-tools.html): header (icon + title + the hub card's live status, which
+    // replaced the old bottom "Active — …/Off — …" sentence), description, then three dark panels (Plugin.Style.cs).
+    // The empty-list wording lives in the panel caption's right-hand hint.
     private HudElement BuildBandMuteRoot() => new ColumnElement(new HudElement[]
     {
-        new TextElement(() => "Mute Other Players' Instruments", Emphasis: true),
-        new TextElement(() => "Silences their notes only — the performer, their animation and nameplate are untouched.",
+        ToolHeader(BandMuteIconPng, "Mute Instruments", BandMuteStatus()),
+        new TextElement(() => "Silences their notes only. The performer, their animation and nameplate are untouched.",
             Color: () => (ColorRgba?)_services.Theme.Colors.TextMuted),
-        new RowElement(new HudElement[]
-        {
-            new ToggleElement(Label: () => "", Get: () => _bandMuteEnabled, Set: OnBandMuteToggle),
-            new TextElement(() => "Enable"),
-        }, Gap: 6f),
-        new RowElement(new HudElement[]
-        {
-            // Blacklist (default) = mute only the listed players; Whitelist = mute everyone EXCEPT the listed players.
-            // index 0/1 maps to _bandMuteAll false/true, routed through the existing toggle handler.
-            new TextElement(() => "Mode"),
-            new DropdownElement(
-                Selected: () => _bandMuteAll ? 1 : 0,
-                Options:  () => BandMuteModeOptions,
-                OnSelect: i => OnBandMuteAllToggle(i == 1),
-                Width:    140f),
-        }, Gap: 6f),
+
+        SectionPanel(null, null,
+            new RowElement(new HudElement[]
+            {
+                new ToggleElement(Label: () => "", Get: () => _bandMuteEnabled, Set: OnBandMuteToggle),
+                new TextElement(() => "Enable"),
+                new SpacerElement(0f),   // flexible: Mode + dropdown right-aligned on the same row
+                // Blacklist (default) = mute only the listed players; Whitelist = mute everyone EXCEPT the listed
+                // players. index 0/1 maps to _bandMuteAll false/true, routed through the existing toggle handler.
+                new TextElement(() => "Mode"),
+                new DropdownElement(
+                    Selected: () => _bandMuteAll ? 1 : 0,
+                    Options:  () => BandMuteModeOptions,
+                    OnSelect: i => OnBandMuteAllToggle(i == 1),
+                    Width:    140f),
+            }, Gap: 6f)),
 
         // ── who is audible right now ──
-        new SeparatorElement(),
-        new TextElement(() => MuteHeard().Count == 0
-                ? "Hearing now — nobody yet, stand near a performer."
-                : $"Hearing now ({MuteHeard().Count}) — click to {(_bandMuteAll ? "allow" : "mute")}",
-            Color: () => (ColorRgba?)_services.Theme.Colors.TextMuted),
-        new VirtualListElement(
-            Count:     () => MuteHeard().Count,
-            RowHeight: 22f,
-            Pool:      BuildMuteHeardPool(),
-            OnWindow:  first => _muteHeardFirst = first,
-            Height:    132f),
-        new ButtonElement(Label: () => "Clear heard list", OnClick: InstrumentMutePatch.ForgetAll, Width: 320f),
+        SectionPanel(() => "Hearing now",
+            () => MuteHeard().Count == 0
+                ? "nobody yet, stand near a performer"
+                : $"click to {(_bandMuteAll ? "allow" : "mute")}",
+            new VirtualListElement(
+                Count:     () => MuteHeard().Count,
+                RowHeight: 22f,
+                Pool:      BuildMuteHeardPool(),
+                OnWindow:  first => _muteHeardFirst = first,
+                Height:    132f),
+            NeutralButton(() => "Clear heard list", InstrumentMutePatch.ForgetAll)),
 
         // ── the durable rule set ──
-        new SeparatorElement(),
-        new TextElement(() => InstrumentMutePatch.Picks().Count == 0
-                ? (_bandMuteAll ? "Allowed — empty (everyone is muted)." : "Muted — empty.")
-                : $"{(_bandMuteAll ? "Allowed" : "Muted")} ({InstrumentMutePatch.Picks().Count}) — click to remove",
-            Color: () => (ColorRgba?)_services.Theme.Colors.TextMuted),
-        new VirtualListElement(
-            Count:     () => InstrumentMutePatch.Picks().Count,
-            RowHeight: 22f,
-            Pool:      BuildMutePickPool(),
-            OnWindow:  first => _mutePickFirst = first,
-            Height:    110f),
-        new ButtonElement(Label: () => _bandMuteAll ? "Clear allow-list" : "Unmute all",
-            OnClick: ClearBandMutePicks, Width: 320f),
-
-        new TextElement(() => _bandMuteEnabled
-                ? (_bandMuteAll ? "Active — all others muted except those listed." : "Active — listed players muted.")
-                : "Off — everyone audible.",
-            Color: () => (ColorRgba?)_services.Theme.Colors.TextMuted),
+        SectionPanel(() => $"{(_bandMuteAll ? "Allowed" : "Muted")} ({InstrumentMutePatch.Picks().Count})",
+            () => InstrumentMutePatch.Picks().Count == 0
+                ? (_bandMuteAll ? "empty, everyone is muted" : "empty")
+                : "click to remove",
+            new VirtualListElement(
+                Count:     () => InstrumentMutePatch.Picks().Count,
+                RowHeight: 22f,
+                Pool:      BuildMutePickPool(),
+                OnWindow:  first => _mutePickFirst = first,
+                Height:    110f),
+            // Live label (mode-dependent); full panel width, so the Bubble's width never follows the label.
+            NeutralButton(() => _bandMuteAll ? "Clear allow-list" : "Unmute all", ClearBandMutePicks)),
     }, Gap: 8f);
+
+    // Live status line, shared by the hub card and this window's header (one builder → they can't drift).
+    private HudElement BandMuteStatus() => new TextElement(BandMuteStatusText,
+        Color: () => _bandMuteEnabled ? StatusOn : MutedColor(), NoWrap: true);
+
+    private string BandMuteStatusText()
+    {
+        if (!_bandMuteEnabled) return "Off · everyone audible";
+        int n = InstrumentMutePatch.Picks().Count;
+        return _bandMuteAll ? $"On · all muted except {n}" : $"On · {n} muted";
+    }
 
     // ── toggles ───────────────────────────────────────────────────────────────────────────────────────────────
     private void OnBandMuteToggle(bool on)
@@ -259,8 +266,14 @@ public sealed partial class Plugin
         for (int s = 0; s < PickPoolSize; s++)
         {
             int slot = s;
+            // The "✕" is a visual cue only — the whole row is the click target (removes the pick), as before.
             pool[s] = new SelectableElement(
-                new TextElement(() => MutePickLabel(slot)),
+                new RowElement(new HudElement[]
+                {
+                    new CellElement(new TextElement(() => MutePickLabel(slot), NoWrap: true), Weight: 1f),
+                    new TextElement(() => MutePickLabel(slot).Length == 0 ? "" : "✕",
+                        Color: () => MutedColor(), NoWrap: true),
+                }, Gap: 6f),
                 OnClick:  () => RemoveBandMutePick(_mutePickFirst + slot),
                 Selected: () => false);   // this list IS the selection; highlighting every row would be noise
         }
@@ -285,6 +298,6 @@ public sealed partial class Plugin
         // Flag entries that can't act yet: a name-only pick (uuid 0, from an older config) does nothing until that
         // player's name resolves, so it's worth showing rather than looking like an active rule.
         string note = pick.Uuid == 0 ? "  (by name — waiting)" : "";
-        return $"− {name}{note}";
+        return $"{name}{note}";   // no "− " prefix any more: the row's trailing ✕ is the remove cue
     }
 }

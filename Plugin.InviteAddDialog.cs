@@ -28,15 +28,21 @@ public sealed partial class Plugin
     private void InitInviteAddDialog()
     {
         _invAddWindow = RegisterWindow("multitool.inviteadd", "MultiTool: Add Player", 3, BuildInviteAddRoot());
+        // Centring rule: opens centred on the window it was opened FROM — the main Auto-Accept window.
+        _invAddCenter = new WindowCenterer(_services.Framework, _invAddWindow, InviteMainWindowCentre);
     }
 
-    // No BringToFront: the dialog and the invite window share WindowCategory.Tools, and opening from hidden remounts
-    // on top within the category (no cross-category conflict).
+    private WindowCenterer _invAddCenter = null!;   // bounded re-centre on the main window (WindowCenterer.cs)
+
+    private void DisposeInviteAddDialog() => _invAddCenter?.Stop();
+
+    // Z-order via WindowCenterer.OpenCentred, which always fronts: a once-fronted window permanently outranks
+    // never-fronted ones, so every MultiTool open fronts.
     private void OpenInviteAddDialog()
     {
         _invAddDraft    = "";
         _invAddLookedUp = "";
-        _invAddWindow.SetVisible(true);
+        _invAddCenter.OpenCentred();   // show + front-if-already-open + centre
     }
 
     private void CloseInviteAdd() => _invAddWindow.SetVisible(false);
@@ -61,7 +67,7 @@ public sealed partial class Plugin
         if (!AllDigits(s)) return;
         if (s != _invAddLookedUp) return;         // must press Look up first
         EnsureInviteListed(s);                    // listed now (roster-only if new); the switches there pick the rules
-        OpenInviteCardDialog(s);
+        OpenInviteCardDialog(s, WindowCenterer.CentreOf(_invAddWindow));   // centred on THIS window (centring rule)
     }
 
     // True once the user has pressed Look up for a valid uid — switches the pre-lookup hint for the result card.
@@ -76,14 +82,15 @@ public sealed partial class Plugin
         return "Press Look up to fetch the name.";
     }
 
-    // The result card: avatar + name + "Lv.N" (mirrors the game's player-info popup). Reads the LOOKED-UP uid so the
-    // card keeps showing the fetched player even if the draft is edited afterwards.
+    // The result card: avatar + name + "Lv.N" (mirrors the game's player-info popup), on a raised tile (TileColor, live from the theme) inside
+    // the "By UID" panel. Reads the LOOKED-UP uid so the card keeps showing the fetched player even if the draft is
+    // edited afterwards.
     private HudElement BuildLookupCard()
     {
         Func<ColorRgba?> muted = () => (ColorRgba?)_services.Theme.Colors.TextMuted;
-        return new RowElement(new HudElement[]
+        return new BubbleElement(new RowElement(new HudElement[]
         {
-            // While still looking up → null texture → an invisible 88×88 box that holds the layout (don't flash a default
+            // While still looking up → null texture → an invisible 56×56 box that holds the layout (don't flash a default
             // face before the result is known). Once resolved: the custom photo if the player set one, else the shared
             // default face (covers both "no custom photo" and terminal not-found). GameTextureElement re-pulls its texture
             // every frame, so the avatar appears the moment Poll decodes the async PNG (ImageElement only decoded once at
@@ -95,13 +102,13 @@ public sealed partial class Plugin
                     if (p != null && p.Resolved) return _profile.DefaultAvatarTex;  // resolved, no custom photo OR not-found → default face
                     return null;                                               // still looking up → blank box
                 },
-                88, 88) { CornerRadius = 12 },   // Abstractions 2.0.0 GameTextureElement has no Fill; default aspect-fit is fine for square avatars
+                56, 56) { CornerRadius = 10 },   // no Fill needed; default aspect-fit is fine for square avatars
             new ColumnElement(new HudElement[]
             {
                 new TextElement(CardTitle, Emphasis: true),
                 new TextElement(CardSubtitle, Color: muted),
             }, Gap: 4f),
-        }, Gap: 10f);
+        }, Gap: 10f)) { FillColorFn = () => TileColor(), PaddingX = 8f, PaddingY = 8f };
     }
 
     // Big line: the player name (or a looking-up / no-name placeholder). Seeds the name resolver opportunistically so
@@ -158,36 +165,36 @@ public sealed partial class Plugin
     }
 
     // ── window ────────────────────────────────────────────────────────────────────────────────────────────────────
+    // Layout per the approved mockup (multitool-dialogs.html): header, "By UID" panel, "From the name card" panel, Close.
     private HudElement BuildInviteAddRoot() => new ColumnElement(new HudElement[]
     {
-        new TextElement(() => "Add player to the list", Emphasis: true),
-        new TextElement(() => "Picking a player adds them to the list; then tick what to auto-accept.",
-            Color: () => (ColorRgba?)_services.Theme.Colors.TextMuted),
+        ToolHeader(AutoAcceptIconPng, "Add Player",
+            MutedLine(() => "Adds them to the list; then pick what to auto-accept.")),
 
-        // Enter in the box triggers Look up (not Choose) — matches "look up first". InviteAddLookup reads the live draft,
-        // not the Submit arg, so a stale/empty Submit arg on Enter can't break it.
-        new RowElement(new HudElement[]
-        {
-            new InputElement(Get: () => _invAddDraft, Submit: _ => InviteAddLookup(),
-                             OnChange: s => _invAddDraft = s, Width: 180f),
-            new ButtonElement(Label: () => "Look up", OnClick: InviteAddLookup, Width: 120f),
-        }, Gap: 6f),
+        SectionPanel(() => "By UID", null,
+            // Enter in the box triggers Look up (not Choose) — matches "look up first". InviteAddLookup reads the live
+            // draft, not the Submit arg, so a stale/empty Submit arg on Enter can't break it.
+            new RowElement(new HudElement[]
+            {
+                new InputElement(Get: () => _invAddDraft, Submit: _ => InviteAddLookup(),
+                                 OnChange: s => _invAddDraft = s, Width: 180f),
+                // 96 label box + 2×6 strut + 2×6 selectable padding = the old 120 px button.
+                NeutralButton(() => "Look up", InviteAddLookup, 96f),
+            }, Gap: 6f),
 
-        // Before a look-up: the hint. After: the avatar+name+level card. Keyed on LookupActive() so the switch happens
-        // the moment Look up is pressed (both subtrees are built once; the renderer SetActive-toggles them).
-        new ConditionalElement(() => !LookupActive(),
-            new TextElement(InviteAddLookupHint, Color: () => (ColorRgba?)_services.Theme.Colors.TextMuted)),
-        new ConditionalElement(() => LookupActive(), BuildLookupCard()),
-        new ButtonElement(Label: () => "Choose this player…", OnClick: InviteAddCommit, Width: 320f),
-
-        new SeparatorElement(),
+            // Before a look-up: the hint. After: the avatar+name+level card. Keyed on LookupActive() so the switch
+            // happens the moment Look up is pressed (both subtrees are built once; the renderer SetActive-toggles them).
+            new ConditionalElement(() => !LookupActive(),
+                new TextElement(InviteAddLookupHint, Color: () => (ColorRgba?)_services.Theme.Colors.TextMuted)),
+            new ConditionalElement(() => LookupActive(), BuildLookupCard()),
+            PrimaryButton(() => "Choose this player…", InviteAddCommit)),
 
         // Card route: instructions only — the card's own button does the adding (Plugin.ProfileCardAdd.cs). TextElement
-        // wraps by default, so the long line folds to the window width.
-        new TextElement(() => "Add from the name card", Emphasis: true),
-        new TextElement(() => "Open any player's name card (click their name or avatar), then press Auto-Accept in the card's button row."),
-        BuildHowToImage(),
+        // wraps by default, so the long line folds to the panel width.
+        SectionPanel(() => "From the name card", null,
+            new TextElement(() => "Open any player's name card (click their name or avatar), then press Auto-Accept in the card's button row."),
+            BuildHowToImage()),
 
-        new ButtonElement(Label: () => "Close", OnClick: CloseInviteAdd, Width: 320f),
-    }, Gap: 10f);
+        NeutralButton(() => "Close", CloseInviteAdd),
+    }, Gap: 8f);
 }

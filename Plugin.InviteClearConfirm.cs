@@ -8,10 +8,10 @@ namespace Stellar.MultiTool;
 // directly — it opens this small hidden window (no launcher tile), centred OVER the main Auto-Accept window (not the
 // screen), and only its "Clear all" button runs ClearAllInviteLists (Plugin.InviteRoster.cs).
 //
-// Z-order: no BringToFront (CLAUDE.md Rule 5). It opens from hidden → remounts with a fresh top ZSeq, and it shares
-// WindowCategory.Tools with the main window, so it sorts above it. Nothing in this plugin fronts the main window
-// (ZFront stays 0 — and the framework never fronts on click), so the fresh ZSeq always wins. Pressing "Clear all" again
-// while it's already open just re-centres it; it's still above for the same reason.
+// Z-order: opened via WindowCenterer.OpenCentred, which always fronts. A fresh ZSeq alone is not enough: the main
+// window may have been fronted (from the hub), and a once-fronted window permanently outranks never-fronted ones
+// (ZFront sorts before ZSeq and survives hide). Pressing "Clear all" again
+// while it is already open fronts + re-centres it.
 //
 // Lifetime: it belongs to the main window — a watcher tick (subscribed only while the confirm is open) hides it the
 // moment the main window closes, so a stale "Remove all N players?" can't outlive the list it refers to.
@@ -21,7 +21,7 @@ public sealed partial class Plugin
     private WindowCenterer _invClearCenter = null!;   // bounded re-centre on the main window's centre (WindowCenterer.cs)
     private bool _invClearWatchSubscribed;
     private bool _invClearSeenShown;   // the confirm has mounted since this open (see OnClearWatchTick)
-    private const float InviteClearWidth = 360f;   // small dialog: fits the two 150px buttons + gap + panel padding
+    private const float InviteClearWidth = 360f;   // small dialog: the question panel + one row of two equal buttons
 
     private void InitInviteClearConfirm()
     {
@@ -48,8 +48,7 @@ public sealed partial class Plugin
 
     private void OpenInviteClearConfirm()
     {
-        _invClearWindow.SetVisible(true);
-        _invClearCenter.Begin();
+        _invClearCenter.OpenCentred();   // show + front-if-already-open + centre
         _invClearSeenShown = false;
         if (!_invClearWatchSubscribed) { _services.Framework.Update += OnClearWatchTick; _invClearWatchSubscribed = true; }
     }
@@ -84,14 +83,16 @@ public sealed partial class Plugin
         CloseInviteClearConfirm();
     }
 
+    // Layout per the approved mockup (multitool-dialogs.html): a panel with the question + consequence, then ONE row of
+    // equal halves — red "Clear all" and grey "Cancel" (same pill build + PillPairWidth, Plugin.Style.cs PillPair).
     private HudElement BuildInviteClearRoot() => new ColumnElement(new HudElement[]
     {
-        // Live N: re-read each frame, so it matches the roster even if it changed while the confirm was open.
-        new TextElement(() => $"Remove all {_invRosterView.Count} players from the auto-accept list?"),
-        new RowElement(new HudElement[]
-        {
-            new ButtonElement(Label: () => "Clear all", OnClick: ConfirmClearAllInviteLists, Width: 150f),
-            new ButtonElement(Label: () => "Cancel",    OnClick: CloseInviteClearConfirm,    Width: 150f),
-        }, Gap: 8f),
+        SectionPanel(null, null,
+            // Live N: re-read each frame, so it matches the roster even if it changed while the confirm was open.
+            new TextElement(() => $"Remove all {_invRosterView.Count} players?", Emphasis: true),
+            MutedLine(() => "Their Party and Social settings are deleted too. This can't be undone.")),
+        PillPair(
+            DangerButton(() => "Clear all", ConfirmClearAllInviteLists, PillPairWidth),
+            NeutralButton(() => "Cancel", CloseInviteClearConfirm, PillPairWidth)),
     }, Gap: 8f);
 }

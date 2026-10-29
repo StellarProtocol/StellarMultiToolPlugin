@@ -43,6 +43,28 @@ internal sealed class WindowCenterer
     // Screen (canvas) centre — the default target.
     public static (float X, float Y)? CanvasCentre(float cw, float ch) => (cw / 2f, ch / 2f);
 
+    // Centre of `parent`'s CURRENT rect (canvas units), or null while it isn't shown / laid out so the centerer keeps
+    // trying. For a child dialog that opens centred on the window it was opened from.
+    public static Func<float, float, (float X, float Y)?> CentreOf(IWindowControl parent) => (_, _) =>
+    {
+        if (!parent.IsShown) return null;
+        var r = parent.Rect;
+        if (r.Width <= 1f || r.Height <= 1f) return null;
+        return (r.X + r.Width / 2f, r.Y + r.Height / 2f);
+    };
+
+    // THE way every MultiTool child window is opened from its parent: show it, ALWAYS front it, then re-centre.
+    // User-approved Rule 5 exception: the framework sorts ZFront (the BringToFront counter) BEFORE ZCat/ZSeq, and ZFront
+    // survives hide/re-show (WindowRenderer.Unpark only refreshes ZSeq) — so a once-fronted window permanently outranks
+    // never-fronted ones, and "opens from hidden → lands on top" stops holding. Every MultiTool open therefore fronts
+    // (the hub's launcher open too, Plugin.cs). A front on a not-yet-mounted window is applied at mount (pending flag).
+    public void OpenCentred()
+    {
+        _win.SetVisible(true);
+        _win.BringToFront();
+        Begin();
+    }
+
     public void Begin()
     {
         _ticks = Budget;
