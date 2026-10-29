@@ -26,6 +26,7 @@
     <EmbeddedResource Include="Resources/icon-bandmute.png" LogicalName="Stellar.MultiTool.icon-bandmute.png" />
     <EmbeddedResource Include="Resources/icon-autoaccept.png" LogicalName="Stellar.MultiTool.icon-autoaccept.png" />
     <EmbeddedResource Include="Resources/banner.png" LogicalName="Stellar.MultiTool.banner.png" />
+    <EmbeddedResource Include="Resources/icon-language.png" LogicalName="Stellar.MultiTool.icon-language.png" />
   </ItemGroup>
 
   <ItemGroup>

@@ -37,7 +37,7 @@ public sealed partial class Plugin
     private const float HubCardGap    = 8f;
 
 #if DEBUG
-    // Debug builds repeat the card list so the >5-card scroll path can be seen with today's 2 tools (3 → 6 cards).
+    // Debug builds repeat the card list so the >5-card scroll path can be seen with today's 3 tools (3 → 9 cards).
     // Release builds never duplicate.
     private const int HubDebugCardCopies = 3;
 #else
@@ -48,6 +48,7 @@ public sealed partial class Plugin
     {
         AddHubTool("Mute Instruments",    BandMuteIconPng,   BandMuteStatus,   _bandMuteWindow);
         AddHubTool("Auto-Accept Invites", AutoAcceptIconPng, InviteStatus,     _inviteWindow);
+        AddHubTool("Language Unlock",     LanguageIconPng,   LanguageStatus,   _languageWindow);
     }
 
     private void AddHubTool(string title, Func<byte[]?> icon, Func<HudElement> status, IWindowControl window) =>

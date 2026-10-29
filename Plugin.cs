@@ -14,6 +14,8 @@ namespace Stellar.MultiTool;
 //   • Auto-Accept Invites — auto-accept party invites / join requests / social invites (whitelist-only); one Players
 //     roster with per-person Party/Social switches; "Clear all" asks for confirmation.
 //   • Profile-card "Auto-Accept" button — opens a per-player dialog with that person's Party / Social switches.
+//   • Language Unlock — show every text language (and extra voice languages) this client ships in the game's own
+//     Settings > Language; applies from the next game start (moved from MahiruUtility, settings imported once).
 //
 // Adding a tool:
 //   1. Put it in its own partial `Plugin.<Feature>.cs` with an `Init<Feature>()` that registers its window via
@@ -37,7 +39,10 @@ public sealed partial class Plugin : IStellarPlugin
 
         // Sub-menus are registered as hidden windows with NO launcher tile of their own —
         // they are opened from the single hub window below.
-        InitBandMute();       // Band Mute: silence specific other players' band instruments (Plugin.BandMute.cs)
+        // Language Unlock first: its patch must be in place when the game boots its language list (and its one-time
+        // Mahiru settings import must be staged before the single save below) (Plugin.Language.cs).
+        InitLanguageUnlock();
+        InitBandMute();      // Band Mute: silence specific other players' band instruments (Plugin.BandMute.cs)
         InitInviteAccept();   // Auto-Accept Invites: party + interaction invite auto-accept (Plugin.InviteAccept.cs)
         InitProfileCardAdd(); // "Auto-Accept" on the native profile card → per-player dialog — needs the lists (Plugin.ProfileCardAdd.cs)
 
@@ -100,6 +105,7 @@ public sealed partial class Plugin : IStellarPlugin
         DisposeInviteClearConfirm();
         DisposeInviteAddDialog();
         DisposeInviteAccept();
+        DisposeLanguageUnlock();
         foreach (var l in _launchers) l.Dispose();
         foreach (var w in _windows) w.Remove();
     }
