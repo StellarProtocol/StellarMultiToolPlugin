@@ -82,7 +82,7 @@ public sealed partial class Plugin
         return "Press Look up to fetch the name.";
     }
 
-    // The result card: avatar + name + "Lv.N" (mirrors the game's player-info popup), on a raised tile (#3d3045) inside
+    // The result card: avatar + name + "Lv.N" (mirrors the game's player-info popup), on a raised tile (TileColor, live from the theme) inside
     // the "By UID" panel. Reads the LOOKED-UP uid so the card keeps showing the fetched player even if the draft is
     // edited afterwards.
     private HudElement BuildLookupCard()
@@ -108,7 +108,7 @@ public sealed partial class Plugin
                 new TextElement(CardTitle, Emphasis: true),
                 new TextElement(CardSubtitle, Color: muted),
             }, Gap: 4f),
-        }, Gap: 10f)) { FillColor = TileFill, PaddingX = 8f, PaddingY = 8f };
+        }, Gap: 10f)) { FillColorFn = () => TileColor(), PaddingX = 8f, PaddingY = 8f };
     }
 
     // Big line: the player name (or a looking-up / no-name placeholder). Seeds the name resolver opportunistically so

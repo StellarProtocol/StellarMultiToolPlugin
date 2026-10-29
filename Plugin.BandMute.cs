@@ -147,7 +147,7 @@ public sealed partial class Plugin
 
     // Live status line, shared by the hub card and this window's header (one builder → they can't drift).
     private HudElement BandMuteStatus() => new TextElement(BandMuteStatusText,
-        Color: () => _bandMuteEnabled ? StatusOn : StatusOff, NoWrap: true);
+        Color: () => _bandMuteEnabled ? StatusOn : MutedColor(), NoWrap: true);
 
     private string BandMuteStatusText()
     {
@@ -272,7 +272,7 @@ public sealed partial class Plugin
                 {
                     new CellElement(new TextElement(() => MutePickLabel(slot), NoWrap: true), Weight: 1f),
                     new TextElement(() => MutePickLabel(slot).Length == 0 ? "" : "✕",
-                        Color: () => CaptionColor, NoWrap: true),
+                        Color: () => MutedColor(), NoWrap: true),
                 }, Gap: 6f),
                 OnClick:  () => RemoveBandMutePick(_mutePickFirst + slot),
                 Selected: () => false);   // this list IS the selection; highlighting every row would be noise

@@ -148,7 +148,7 @@ public sealed partial class Plugin
         StatusChip("Party",  ChipParty,  () => _invPartyEnabled),
         StatusChip("Social", ChipSocial, () => _invIntEnabled),
         StatusChip("Join",   ChipJoin,   () => _invPartyApplyEnabled),
-        new TextElement(InviteStatusTail, Color: () => CaptionColor, NoWrap: true),
+        new TextElement(InviteStatusTail, Color: () => MutedColor(), NoWrap: true),
     }, Gap: 4f);
 
     private string InviteStatusTail()
@@ -192,7 +192,7 @@ public sealed partial class Plugin
             HeaderSwitchCell("Party"),
             HeaderSwitchCell("Social"),
             new CellElement(new TextElement(() => ""), Width: InviteRemoveColW),
-        }, Gap: 4f), Transparent),
+        }, Gap: 4f), () => Transparent),
         new SeparatorElement(),   // the themed divider under the header
         new VirtualListElement(
             Count:     () => _invRosterView.Count,
@@ -208,9 +208,9 @@ public sealed partial class Plugin
 
     private const float InviteTilePadX   = 6f;     // roster tile inner padding (header uses the same, so columns align)
 
-    // A roster row's raised tile (#3d3045), or — with a transparent fill — the header's matching padding.
-    private static HudElement RosterTile(HudElement row, ColorRgba fill) =>
-        new BubbleElement(row) { FillColor = fill, PaddingX = InviteTilePadX, PaddingY = 0f };
+    // A roster row's raised tile (TileColor, live from the theme), or — with a transparent fill — the header's matching padding.
+    private static HudElement RosterTile(HudElement row, Func<ColorRgba> fill) =>
+        new BubbleElement(row) { FillColorFn = () => fill(), PaddingX = InviteTilePadX, PaddingY = 0f };
 
     // Table-header label: bold + muted so it reads as a header, not a data row. NoWrap keeps it on the row pitch.
     private TextElement InviteHeaderText(Func<string> text) => new TextElement(text,
@@ -255,7 +255,7 @@ public sealed partial class Plugin
                             OnClick: () => { if (Uid() is { } u) RemoveFromInviteList(u); }, Width: 24f),
                     }, Justify: RowJustify.Right),
                     Width: InviteRemoveColW),
-            }, Gap: 4f), TileFill);
+            }, Gap: 4f), TileColor);
         }
         return pool;
     }

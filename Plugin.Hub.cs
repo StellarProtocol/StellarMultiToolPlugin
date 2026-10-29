@@ -103,23 +103,23 @@ public sealed partial class Plugin
     // A raised tile (Bubble fill, sitting directly in the Column → full width) around a SelectableElement row, so the
     // selectable's default hover wash covers the whole card. Bubble OUTSIDE the selectable on purpose: a bubble wrapped
     // IN a selectable gets a full-width chip painted behind it (WindowBuilder-Patterns.md §BubbleElement).
-    private static HudElement HubCard(HubTool t) => new BubbleElement(new SelectableElement(
+    private HudElement HubCard(HubTool t) => new BubbleElement(new SelectableElement(
         new RowElement(new HudElement[]
         {
             IconBox(t.Icon, ToolIconSize),
             new ColumnElement(new HudElement[]
             {
-                new TextElement(() => t.Title, Emphasis: true, NoWrap: true),
+                new TextElement(() => t.Title, Color: () => TextColor(), Emphasis: true, NoWrap: true),
                 t.Status(),
             }, Gap: 2f),
             new SpacerElement(0f),   // flexible: pushes the chevron to the right edge
             // Bold (styled/TMP path) so FontSize applies, and a glyph missing from the plain menu font can't fall back
             // to a taller OS font and grow the row.
-            new TextElement(() => "›", Color: () => CaptionColor, NoWrap: true, FontSize: 18) { Bold = true },
+            new TextElement(() => "›", Color: () => MutedColor(), NoWrap: true, FontSize: 18) { Bold = true },
             new SpacerElement(2f, HubCardStrut),   // right margin + the height strut that pins every card to HubCardHeight
         }, Gap: 10f),
         OnClick: () => OpenHubTool(t)))
     {
-        FillColor = TileFill, PaddingX = 0f, PaddingY = 0f,
+        FillColorFn = () => TileColor(), PaddingX = 0f, PaddingY = 0f,
     };
 }
