@@ -8,9 +8,9 @@ namespace Stellar.MultiTool;
 // directly — it opens this small hidden window (no launcher tile), centred OVER the main Auto-Accept window (not the
 // screen), and only its "Clear all" button runs ClearAllInviteLists (Plugin.InviteRoster.cs).
 //
-// Z-order: opened via WindowCenterer.OpenCentred. From hidden it re-shows with a fresh top ZSeq, and it shares
-// WindowCategory.Tools with the main window, so it sorts above it — unless something was fronted (e.g. the main window
-// from the hub), in which case OpenCentred fronts it too (ZFront outranks ZSeq). Pressing "Clear all" again
+// Z-order: opened via WindowCenterer.OpenCentred, which always fronts. A fresh ZSeq alone is not enough: the main
+// window may have been fronted (from the hub), and a once-fronted window permanently outranks never-fronted ones
+// (ZFront sorts before ZSeq and survives hide). Pressing "Clear all" again
 // while it is already open fronts + re-centres it.
 //
 // Lifetime: it belongs to the main window — a watcher tick (subscribed only while the confirm is open) hides it the

@@ -52,7 +52,9 @@ public sealed partial class Plugin : IStellarPlugin
             Title:   "MultiTool",
             IconPng: LoadIconPng(),
             IconKey: null,
-            OnOpen:  () => _hubWindow.SetVisible(true))
+            // Show + front (no centring): a once-fronted tool window permanently outranks never-fronted ones, so every
+            // MultiTool open fronts — see WindowCenterer.OpenCentred (user-approved Rule 5 exception).
+            OnOpen:  () => { _hubWindow.SetVisible(true); _hubWindow.BringToFront(); })
         { Group = LauncherGroup.Plugin,
           // Gate the MultiTool launcher tile to the in-world phase.
           ShouldShow = () => _services.ClientState.Phase == GamePhase.World }));

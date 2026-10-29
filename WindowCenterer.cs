@@ -53,21 +53,15 @@ internal sealed class WindowCenterer
         return (r.X + r.Width / 2f, r.Y + r.Height / 2f);
     };
 
-    // THE way every MultiTool child window is opened from its parent: show it, front it only when needed, then
-    // re-centre. A hidden window re-shows with a fresh top ZSeq, so normally it needs no fronting.
-    //
-    // ⚠️ Once ANY window has been fronted, that's no longer true: the framework sorts ZFront (the BringToFront counter)
-    // BEFORE ZSeq, and ZFront survives hide/re-show (WindowRenderer.Unpark only bumps ZSeq). So after e.g. the
-    // Auto-Accept window is fronted from the hub, a never-fronted Add Player / Clear confirm opening from hidden would
-    // sort UNDER it. Hence: front if already visible, or if anything has been fronted since load (_anyFronted).
-    private static bool _anyFronted;
-
+    // THE way every MultiTool child window is opened from its parent: show it, ALWAYS front it, then re-centre.
+    // User-approved Rule 5 exception: the framework sorts ZFront (the BringToFront counter) BEFORE ZCat/ZSeq, and ZFront
+    // survives hide/re-show (WindowRenderer.Unpark only refreshes ZSeq) — so a once-fronted window permanently outranks
+    // never-fronted ones, and "opens from hidden → lands on top" stops holding. Every MultiTool open therefore fronts
+    // (the hub's launcher open too, Plugin.cs). A front on a not-yet-mounted window is applied at mount (pending flag).
     public void OpenCentred()
     {
-        bool wasShown = _win.IsShown;
         _win.SetVisible(true);
-        // User-approved Rule 5 exception: an already-visible child re-opened from a same-category parent would otherwise stay under the parent.
-        if (wasShown || _anyFronted) { _win.BringToFront(); _anyFronted = true; }   // hidden + pending front is handled by the framework
+        _win.BringToFront();
         Begin();
     }
 

@@ -36,8 +36,8 @@ public sealed partial class Plugin
 
     private void DisposeInviteAddDialog() => _invAddCenter?.Stop();
 
-    // Z-order via WindowCenterer.OpenCentred (fronts only when already open or after an earlier front); otherwise
-    // opening from hidden re-shows on top within the shared Tools category.
+    // Z-order via WindowCenterer.OpenCentred, which always fronts: a once-fronted window permanently outranks
+    // never-fronted ones, so every MultiTool open fronts.
     private void OpenInviteAddDialog()
     {
         _invAddDraft    = "";

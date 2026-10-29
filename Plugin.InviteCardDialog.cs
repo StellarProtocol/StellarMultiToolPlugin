@@ -39,8 +39,8 @@ public sealed partial class Plugin
 
     private void DisposeInviteCardDialog() => _invCardCenter?.Stop();
 
-    // Z-order via WindowCenterer.OpenCentred: an already-open dialog (a retarget) is fronted so it never stays under its
-    // opener (user-approved Rule 5 exception); from hidden it re-shows on top. Our windows already render above the
+    // Z-order via WindowCenterer.OpenCentred, which always fronts (a once-fronted window permanently outranks never-
+    // fronted ones; user-approved Rule 5 exception), so a retarget never stays under its opener. Our windows render above the
     // native card's UI canvas (EntityInspector precedent), so no extra z work for the card either.
     // `centre` null = screen centre (the name-card route); otherwise the opener's window centre.
     private void OpenInviteCardDialog(string uid, Func<float, float, (float X, float Y)?>? centre = null)
