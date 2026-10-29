@@ -9,8 +9,8 @@ namespace Stellar.MultiTool;
 // Each card = [40px icon] | [bold title over the tool's live status line] | › and opens that tool's window centred on
 // the hub. Adding a tool = one entry in BuildHubTools().
 //
-// Z-order: no BringToFront (CLAUDE.md Rule 5). The tool windows share WindowCategory.Tools with the hub, so there is
-// no cross-category conflict; a tool window opening from hidden remounts with a fresh top ZSeq and lands above the hub.
+// Z-order: opened via WindowCenterer.OpenCentred, which fronts only when needed (already open, or after an earlier front).
+// Otherwise a tool window opening from hidden re-shows with a fresh top ZSeq and lands above the hub (same category).
 public sealed partial class Plugin
 {
     private IWindowControl _hubWindow = null!;
@@ -72,8 +72,7 @@ public sealed partial class Plugin
     // Every click re-centres, including when the tool window is already open (Begin restarts the bounded settle).
     private static void OpenHubTool(HubTool t)
     {
-        t.Window.SetVisible(true);
-        t.Centerer.Begin();
+        t.Centerer.OpenCentred();   // fronts it only if already open (WindowCenterer.OpenCentred)
     }
 
     private HudElement BuildHubRoot()

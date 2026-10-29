@@ -36,14 +36,13 @@ public sealed partial class Plugin
 
     private void DisposeInviteAddDialog() => _invAddCenter?.Stop();
 
-    // No BringToFront: the dialog and the invite window share WindowCategory.Tools, and opening from hidden remounts
-    // on top within the category (no cross-category conflict).
+    // Z-order via WindowCenterer.OpenCentred (fronts only when already open or after an earlier front); otherwise
+    // opening from hidden re-shows on top within the shared Tools category.
     private void OpenInviteAddDialog()
     {
         _invAddDraft    = "";
         _invAddLookedUp = "";
-        _invAddWindow.SetVisible(true);
-        _invAddCenter.Begin();
+        _invAddCenter.OpenCentred();   // show + front-if-already-open + centre
     }
 
     private void CloseInviteAdd() => _invAddWindow.SetVisible(false);

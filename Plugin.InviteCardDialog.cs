@@ -39,18 +39,17 @@ public sealed partial class Plugin
 
     private void DisposeInviteCardDialog() => _invCardCenter?.Stop();
 
-    // No BringToFront: opening from hidden remounts with a fresh top ZSeq; if it's already visible this is a retarget
-    // within WindowCategory.Tools — no cross-category conflict (CLAUDE.md Rule 5). Our windows already render above the
+    // Z-order via WindowCenterer.OpenCentred: an already-open dialog (a retarget) is fronted so it never stays under its
+    // opener (user-approved Rule 5 exception); from hidden it re-shows on top. Our windows already render above the
     // native card's UI canvas (EntityInspector precedent), so no extra z work for the card either.
     // `centre` null = screen centre (the name-card route); otherwise the opener's window centre.
     private void OpenInviteCardDialog(string uid, Func<float, float, (float X, float Y)?>? centre = null)
     {
         _invCardUid = uid;
         _invCardTarget = centre ?? WindowCenterer.CanvasCentre;
-        _invCardWindow.SetVisible(true);
         // Bounded re-centre until laid out (the size can still move a tick later, e.g. the live title widening once
         // the person's name resolves) — see WindowCenterer.cs for why it isn't one SetRect.
-        _invCardCenter.Begin();
+        _invCardCenter.OpenCentred();   // show + front-if-already-open + centre
     }
 
     private void CloseInviteCardDialog() => _invCardWindow.SetVisible(false);
