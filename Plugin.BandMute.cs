@@ -114,7 +114,10 @@ public sealed partial class Plugin
                     Selected: () => _bandMuteAll ? 1 : 0,
                     Options:  () => BandMuteModeOptions,
                     OnSelect: i => OnBandMuteAllToggle(i == 1),
-                    Width:    140f),
+                    Width:    140f)
+                {
+                    Style = DropdownStyle.Pill,   // house-style pill trigger + list (framework ≥ 2.28.0)
+                },
             }, Gap: 6f)),
 
         // ── who is audible right now ──

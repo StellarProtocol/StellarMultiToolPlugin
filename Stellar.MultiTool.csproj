@@ -15,9 +15,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Stellar.Abstractions"       Version="2.26.0" />
-    <PackageReference Include="Stellar.PluginContracts"    Version="2.26.0" />
-    <PackageReference Include="Stellar.Plugin.InteropRefs" Version="2.26.0" />
+    <PackageReference Include="Stellar.Abstractions"       Version="2.28.0" />
+    <PackageReference Include="Stellar.PluginContracts"    Version="2.28.0" />
+    <PackageReference Include="Stellar.Plugin.InteropRefs" Version="2.28.0" />
   </ItemGroup>
 
   <ItemGroup>
