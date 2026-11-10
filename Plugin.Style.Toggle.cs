@@ -41,28 +41,26 @@ public sealed partial class Plugin
 
     // ── clickable on/off chip (64 × 24 in BOTH states) ───────────────────────────────────────────────────────────
     // On = bold accent label on a 25% accent wash; off = regular muted label on the neutral fill (prototype) — or, with
-    // `cautionOff` (a row whose OFF is risky), the Caution look: bold amber label (4.5:1) on the amber wash. Two
-    // complete chips swapped by a Conditional wrapping the WHOLE chip (never a Conditional inside a bubble's measured
-    // child), inside one fixed-width cell; both share one HoverFlag. MaxWidth pins the width: a MaxWidth-0 bubble under
-    // a Conditional caps itself at the 100 px default (WindowBuilder-Patterns, Dungeon Confirm 6b19310).
-    private HudElement ToggleChip(Func<bool> on, Action toggle, Func<bool>? dim = null, bool cautionOff = false)
+    // `cautionOn` (a row whose ON is risky, e.g. hiding boss telegraphs), the ON chip takes the Caution look instead:
+    // bold amber label (4.5:1) on the amber wash. Two complete chips swapped by a Conditional wrapping the WHOLE chip
+    // (never a Conditional inside a bubble's measured child), inside one fixed-width cell; both share one HoverFlag.
+    // MaxWidth pins the width: a MaxWidth-0 bubble under a Conditional caps itself at the 100 px default
+    // (WindowBuilder-Patterns, Dungeon Confirm 6b19310).
+    private HudElement ToggleChip(Func<bool> on, Action toggle, Func<bool>? dim = null, bool cautionOn = false)
     {
         var hover = new HoverFlag();
-        ColorRgba OnFillRaw()  => Over(AccentColor() with { A = ChipOnWash + (hover.On ? ChipHoverAlpha : 0f) }, PanelColor());
-        ColorRgba OffBase()    => cautionOff ? Over(ChipJoin with { A = CautionWash }, PanelColor()) : NeutralFill();
-        ColorRgba OffFillRaw() => hover.On ? Over(TextColor() with { A = HoverMix }, OffBase()) : OffBase();
-        HudElement offLabel = cautionOff
-            ? DropBold(new TextElement(() => "Off",
-                Color: () => Dimmed(EnsureContrast(ChipJoin, OffFillRaw(), PillMinContrast), dim), Width: ChipWidth,
-                Align: TextAlign.Center, NoWrap: true, FontSize: 13) { Bold = true })
-            : new TextElement(() => "Off", Color: () => Dimmed(MutedColor(), dim), Width: ChipWidth,
-                Align: TextAlign.Center, NoWrap: true);
+        float onWash = cautionOn ? CautionWash : ChipOnWash;   // the accent itself is read live (theme can change)
+        ColorRgba OnFillRaw()  => Over((cautionOn ? ChipJoin : AccentColor()) with
+                                       { A = onWash + (hover.On ? ChipHoverAlpha : 0f) }, PanelColor());
+        ColorRgba OffFillRaw() => hover.On ? Over(TextColor() with { A = HoverMix }, NeutralFill()) : NeutralFill();
         return new CellElement(new ConditionalElement(on,
             ChipShell(DropBold(new TextElement(() => "On",
-                    Color: () => Dimmed(EnsureContrast(AccentColor(), OnFillRaw(), PillMinContrast), dim), Width: ChipWidth,
-                    Align: TextAlign.Center, NoWrap: true, FontSize: 13) { Bold = true }),
+                    Color: () => Dimmed(EnsureContrast(cautionOn ? ChipJoin : AccentColor(), OnFillRaw(), PillMinContrast),
+                        dim), Width: ChipWidth, Align: TextAlign.Center, NoWrap: true, FontSize: 13) { Bold = true }),
                 () => Dimmed(OnFillRaw(), dim), hover, toggle),
-            ChipShell(offLabel, () => Dimmed(OffFillRaw(), dim), hover, toggle)),
+            ChipShell(new TextElement(() => "Off", Color: () => Dimmed(MutedColor(), dim), Width: ChipWidth,
+                    Align: TextAlign.Center, NoWrap: true),
+                () => Dimmed(OffFillRaw(), dim), hover, toggle)),
             Width: ChipWidth);
     }
 

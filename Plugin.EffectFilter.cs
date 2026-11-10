@@ -22,13 +22,14 @@ namespace Stellar.MultiTool;
 // only runs in-world, so the falling edge comes from SceneChanged (OnLeaveScene) / Logout, the rising edge from the tick.
 public sealed partial class Plugin
 {
-    private bool _effOn;              // master: "Other players' skill effects" (default OFF on first install)
-    private bool _effPets;            // "Their pets & summons"
-    private bool _effShowMarkers;     // SHOW rows (default ON = shown; off = hidden) — "Telegraphs & important markers"
-    private bool _effShowMonsters;    // "Boss & monster effects"
-    private bool _effShowMine;        // "My own effects"
-    private bool _effKeepOnMe;        // "Effects that land on me"
-    private bool _effKeepBuffs;       // "Heal & buff zones"
+    // Every switch means HIDE (On = hidden; user-approved 2026-11-11). Defaults: only "…their pets & summons" is On.
+    private bool _effOn;              // "Other players' effects" (default OFF on first install)
+    private bool _effPets;            // "…their pets & summons"  (applies only while _effOn)
+    private bool _effOthersBuffs;     // "…their heals & buffs"   (applies only while _effOn)
+    private bool _effOthersOnMe;      // "…their effects on me"   (applies only while _effOn)
+    private bool _effHideMine;        // "My own effects"
+    private bool _effHideMonsters;    // "Boss & monster effects"
+    private bool _effHideMarkers;     // "Telegraphs & important markers"
     private bool _effEverywhere;      // Where: false = Dungeons & raids (default), true = Everywhere
 
     private HarmonyLib.Harmony? _effHarmony;   // created once; install retries reuse it
@@ -43,13 +44,20 @@ public sealed partial class Plugin
 
     private void InitEffectFilter()
     {
+        // New HIDE keys; a missing one defaults to the pre-2026-11-11 SHOW/KEEP key it replaces, inverted (the old keys
+        // are only read, never written again). "enabled" and "pets" kept their meaning and their keys.
         _effOn           = _cfg.Get<bool>("effect_filter_enabled",       false);
         _effPets         = _cfg.Get<bool>("effect_filter_pets",          true);
-        _effShowMarkers  = _cfg.Get<bool>("effect_filter_show_markers",  true);
-        _effShowMonsters = _cfg.Get<bool>("effect_filter_show_monsters", true);
-        _effShowMine     = _cfg.Get<bool>("effect_filter_show_mine",     true);
-        _effKeepOnMe     = _cfg.Get<bool>("effect_filter_keep_on_me",    true);
-        _effKeepBuffs    = _cfg.Get<bool>("effect_filter_keep_buffs",    true);
+        _effOthersBuffs  = _cfg.Get<bool>("effect_filter_hide_others_buffs",
+                                          !_cfg.Get<bool>("effect_filter_keep_buffs",    true));
+        _effOthersOnMe   = _cfg.Get<bool>("effect_filter_hide_others_on_me",
+                                          !_cfg.Get<bool>("effect_filter_keep_on_me",    true));
+        _effHideMine     = _cfg.Get<bool>("effect_filter_hide_mine",
+                                          !_cfg.Get<bool>("effect_filter_show_mine",     true));
+        _effHideMonsters = _cfg.Get<bool>("effect_filter_hide_monsters",
+                                          !_cfg.Get<bool>("effect_filter_show_monsters", true));
+        _effHideMarkers  = _cfg.Get<bool>("effect_filter_hide_markers",
+                                          !_cfg.Get<bool>("effect_filter_show_markers",  true));
         _effEverywhere   = _cfg.Get<bool>("effect_filter_everywhere",    false);
         PushEffectRules();
         // Construction is never in world: subscribe only (when something can hide); the install waits for the first
@@ -73,13 +81,13 @@ public sealed partial class Plugin
     }
 
     // ── settings (one save per click, MultiTool-Plugin.md §4.1) ──────────────────────────────────────────────────
-    private void ToggleEffMaster()       => SaveEffBool("effect_filter_enabled",       _effOn           = !_effOn);
-    private void ToggleEffPets()         => SaveEffBool("effect_filter_pets",          _effPets         = !_effPets);
-    private void ToggleEffShowMarkers()  => SaveEffBool("effect_filter_show_markers",  _effShowMarkers  = !_effShowMarkers);
-    private void ToggleEffShowMonsters() => SaveEffBool("effect_filter_show_monsters", _effShowMonsters = !_effShowMonsters);
-    private void ToggleEffShowMine()     => SaveEffBool("effect_filter_show_mine",     _effShowMine     = !_effShowMine);
-    private void ToggleEffKeepOnMe()     => SaveEffBool("effect_filter_keep_on_me",    _effKeepOnMe     = !_effKeepOnMe);
-    private void ToggleEffKeepBuffs()    => SaveEffBool("effect_filter_keep_buffs",    _effKeepBuffs    = !_effKeepBuffs);
+    private void ToggleEffMaster()       => SaveEffBool("effect_filter_enabled",           _effOn           = !_effOn);
+    private void ToggleEffPets()         => SaveEffBool("effect_filter_pets",              _effPets         = !_effPets);
+    private void ToggleEffOthersBuffs()  => SaveEffBool("effect_filter_hide_others_buffs", _effOthersBuffs  = !_effOthersBuffs);
+    private void ToggleEffOthersOnMe()   => SaveEffBool("effect_filter_hide_others_on_me", _effOthersOnMe   = !_effOthersOnMe);
+    private void ToggleEffHideMine()     => SaveEffBool("effect_filter_hide_mine",         _effHideMine     = !_effHideMine);
+    private void ToggleEffHideMonsters() => SaveEffBool("effect_filter_hide_monsters",     _effHideMonsters = !_effHideMonsters);
+    private void ToggleEffHideMarkers()  => SaveEffBool("effect_filter_hide_markers",      _effHideMarkers  = !_effHideMarkers);
 
     private void SetEffEverywhere(bool everywhere)
     {
@@ -141,20 +149,20 @@ public sealed partial class Plugin
 
     private void RefreshEffWorldGate() => EffectFilterPatch.WorldReady = EffectFilterPatch.Installed && EffWorldReady;
 
-    // Can any setting hide something? The master hides other players; a SHOW row off hides its class. "Effects that land
-    // on me" / "Heal & buff zones" only KEEP (they override the rows below them), so turning them off alone hides nothing.
-    private bool EffAnyHide => _effOn || !_effShowMarkers || !_effShowMonsters || !_effShowMine;
+    // Can any setting hide something? Only the four top-level rows can; the "…their" sub-rows only refine what
+    // "Other players' effects" hides, so with it off they hide nothing.
+    private bool EffAnyHide => _effOn || _effHideMine || _effHideMonsters || _effHideMarkers;
 
     // A rule change invalidates every cached decision (an effect hidden under the old rule may now be kept).
     private void PushEffectRules()
     {
         EffectFilterPatch.HideOthers   = _effOn;
         EffectFilterPatch.HidePets     = _effPets;
-        EffectFilterPatch.ShowMarkers  = _effShowMarkers;
-        EffectFilterPatch.ShowMonsters = _effShowMonsters;
-        EffectFilterPatch.ShowMine     = _effShowMine;
-        EffectFilterPatch.KeepOnMe     = _effKeepOnMe;
-        EffectFilterPatch.KeepBuffs    = _effKeepBuffs;
+        EffectFilterPatch.HideBuffs    = _effOthersBuffs;
+        EffectFilterPatch.HideOnMe     = _effOthersOnMe;
+        EffectFilterPatch.HideMine     = _effHideMine;
+        EffectFilterPatch.HideMonsters = _effHideMonsters;
+        EffectFilterPatch.HideMarkers  = _effHideMarkers;
         EffectFilterPatch.ResetCaches();
     }
 

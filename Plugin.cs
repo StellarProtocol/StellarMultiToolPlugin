@@ -16,8 +16,8 @@ namespace Stellar.MultiTool;
 //   • Profile-card "Auto-Accept" button — opens a per-player dialog with that person's Party / Social switches.
 //   • Language Unlock — show every text language (and extra voice languages) this client ships in the game's own
 //     Settings > Language; applies from the next game start (moved from MahiruUtility, settings imported once).
-//   • Effect Filter — skip loading the skill effects other players cast (FPS in crowded fights); monsters, telegraphs
-//     and my own effects always stay (EffectFilterPatch.cs).
+//   • Effect Filter — skip loading chosen skill effects (other players', mine, monsters, telegraphs — every switch
+//     means hide) for FPS in crowded fights (EffectFilterPatch.cs).
 //
 // Adding a tool:
 //   1. Put it in its own partial `Plugin.<Feature>.cs` with an `Init<Feature>()` that registers its window via
