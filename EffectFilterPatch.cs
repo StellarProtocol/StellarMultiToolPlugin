@@ -1,0 +1,278 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Reflection;
+using HarmonyLib;
+using Stellar.Abstractions.Diagnostics;
+using Stellar.Abstractions.Services;
+
+namespace Stellar.MultiTool;
+
+/// <summary>
+/// Effect Filter mechanism: skips loading the skill effects OTHER PLAYERS cast (KB Performance-Levers.md "Effects by
+/// OWNER RELATION"). Effects are ~4.5 ms/frame of the main thread in raids; skipping one BEFORE it loads saves that CPU
+/// (the game's FX-layer cull only saves GPU and also hides telegraphs).
+/// <list type="bullet">
+/// <item>Hook: Harmony PREFIX on <c>Panda.ZEffect.ZEffect.LoadEffect()</c> (no params). Returning false skips the load;
+/// the effect stays registered and the game's own life check removes it. Skipped effects are also silent (audio plays
+/// after load).</item>
+/// <item>Rule — the CASTER decides, not the target: hide iff Type ≠ Warning (telegraph) AND !IsImportant AND the caster
+/// is another player (<c>UuidToEntType(FromUuid) == Char</c>, not me), or — with "pets &amp; summons" on — a
+/// Pet/Bullet/ClientBullet whose top summoner (<c>AttrTopSummonerId=91</c>, fallback 90) is another player's Char.
+/// Never hidden: monsters/NPC/scene objects/zones/unknown casters, my own, Warning, IsImportant; optionally effects
+/// that land on me (BelongUuid) and buff-sourced ones (heal/buff zones).</item>
+/// <item>Accessors are the Experiment census's (validated in game), bound once into typed delegates
+/// (<see cref="EffectFilterBind"/>).</item>
+/// </list>
+/// Perf (Plugin-Performance-Rules.md §7) — fires per effect load, hundreds/s in a raid:
+/// <list type="bullet">
+/// <item>Inactive (master off / outside the chosen scope / my uuid unknown) = one static bool read.</item>
+/// <item>The decision is cached per effect uid (the game may call LoadEffect again for the same uid → same answer,
+/// O(1), no context read), and the uid is read BEFORE the context so a repeat skips the context wrapper.</item>
+/// <item>The owner lookup (GetEntity + GetAttr) runs only for Pet/Bullet casters, once per caster uuid (cached,
+/// misses too). Char and Monster casters decide from the uuid alone.</item>
+/// <item>Caches clear on scene change, on a rule change and when my uuid changes; capped at 16384 entries.</item>
+/// <item>No strings or Invoke on the hot path; timing only when <see cref="StellarDiagnostics"/> is on.</item>
+/// </list>
+/// Installed on first enable and never unpatched at runtime (state-gated; runtime unpatch of a hot method risks the
+/// trampoline crash — Framework-Interop-Foundation.md "LAZY-INSTALL"); IHarmonyHost unpatches on plugin dispose.
+/// Main thread only (ZEffectManager.LateUpdate drives loads).
+/// </summary>
+internal static class EffectFilterPatch
+{
+    // ── Knobs (Plugin.EffectFilter.cs) ───────────────────────────────────────────────────────────────────────────
+    public static bool Active;               // master on && in scope && my uuid known — the ONE read when off
+    public static bool HidePets  = true;     // "Their pets & summons"
+    public static bool KeepOnMe  = true;     // "Effects that land on me"
+    public static bool KeepBuffs = true;     // "Heal & buff zones"
+    public static long LocalUuid;            // CombatSnapshot.LocalEntityId, refreshed by the plugin's 1 s tick
+    public static int  HiddenThisFight;      // first-time hides (a retried uid isn't recounted); reset per fight/scene
+    public static bool Installed  { get; private set; }
+    public static bool HardFailed { get; private set; }   // types found but binding/patching failed → never retried
+
+    // EEntityType (dump.cs 698772); EffectContext.EEffectType; EBattleDataType.
+    private const int EntBullet = 6, EntClientBullet = 7, EntPet = 8, EntChar = 10;
+    private const int TypeWarning = 2;
+    private const int SrcBuff = 1;
+    private const int MaxCache = 16384;
+
+    private static Action<string>? _log;
+
+    // ── Bound accessors ──────────────────────────────────────────────────────────────────────────────────────────
+    private static Func<object, object?>? _ctxOf;            // ZEffect.Context
+    private static Func<object, long>? _effUid;              // ZEffect.Uid
+    private static Func<object, long>? _from, _belong, _type, _src;
+    private static Func<object, bool>? _important;
+    private static Func<long, long>? _entType;                // ZEntity.UuidToEntType (static, pure uuid decode)
+    private static Func<object?>? _mgrInstance;               // ZEntityMgr.Instance
+    private static Func<object, long, object?>? _getEntity;   // ZEntityMgr.GetEntity(long)
+    private static Func<object, long>? _attrTop, _attrSum;    // GetAttr<long>(91 / 90, true)
+    private static object? _mgr;                              // refreshed at 1 Hz (RefreshManager)
+
+    // ── Caches (scene-scoped) ────────────────────────────────────────────────────────────────────────────────────
+    private static readonly Dictionary<long, bool> _decided = new();   // effect uid → hide
+    private static readonly Dictionary<long, long> _ownerOf = new();   // pet/bullet uuid → top summoner (0 = none)
+
+    // ── Diagnostics (STELLAR_DIAGNOSTICS=1 only) ─────────────────────────────────────────────────────────────────
+    private static bool _diag;
+    private static int  _calls, _hides, _errors, _errLogged, _ownerLookups;
+    private static long _costTicks, _costMax;
+
+    public static bool Install(Harmony harmony, Action<string> log)
+    {
+        if (Installed || HardFailed) return Installed;
+        _log  = log;
+        _diag = StellarDiagnostics.IsEnabled;
+        try
+        {
+            var effT = StellarInterop.FindType("Panda.ZEffect.ZEffect");
+            var ctxT = StellarInterop.FindType("Panda.ZGame.EffectContext");
+            var entT = StellarInterop.FindType("Panda.ZGame.ZEntity");
+            if (effT == null || ctxT == null || entT == null) return false;   // not loaded yet → the plugin retries
+
+            var load = BindCore(effT, ctxT, entT);
+            BindOwner(entT);
+            log($"[EffFilter] bind: load={load != null} ctx={_ctxOf != null} uid={_effUid != null} from={_from != null} " +
+                $"belong={_belong != null} type={_type != null} src={_src != null} imp={_important != null} " +
+                $"entType={_entType != null} mgr={_mgrInstance != null} getEnt={_getEntity != null} " +
+                $"attrTop={_attrTop != null} attrSum={_attrSum != null}");
+            if (load == null || _ctxOf == null || _from == null || _belong == null || _type == null || _src == null
+                || _important == null || _entType == null)
+            { HardFailed = true; log("[EffFilter] essential accessor missing — not patching"); return false; }
+
+            harmony.Patch(load, prefix: new HarmonyMethod(typeof(EffectFilterPatch), nameof(Prefix)));
+            Installed = true;
+            log($"[EffFilter] patched ZEffect.LoadEffect (prefix) diag={_diag}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            HardFailed = true;
+            log($"[EffFilter] install failed: {ex.InnerException?.Message ?? ex.Message}");
+            return false;
+        }
+    }
+
+    // The decision's essentials: the hook target and the effect/context reads. Returns LoadEffect() or null.
+    private static MethodInfo? BindCore(Type effT, Type ctxT, Type entT)
+    {
+        MethodInfo? load = null;
+        foreach (var m in effT.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+            if (m.Name == "LoadEffect" && m.GetParameters().Length == 0 && !m.IsGenericMethodDefinition) { load = m; break; }
+
+        _ctxOf     = EffectFilterBind.RefProp(effT, "Context");
+        _effUid    = EffectFilterBind.NumProp(effT, "Uid");
+        _from      = EffectFilterBind.NumProp(ctxT, "FromUuid");
+        _belong    = EffectFilterBind.NumProp(ctxT, "BelongUuid");
+        _type      = EffectFilterBind.NumProp(ctxT, "Type");
+        _src       = EffectFilterBind.NumProp(ctxT, "Source");
+        _important = EffectFilterBind.BoolProp(ctxT, "IsImportant");
+
+        foreach (var m in entT.GetMethods(BindingFlags.Public | BindingFlags.Static))
+            if (m.Name == "UuidToEntType" && m.GetParameters() is { Length: 1 } ps && ps[0].ParameterType == typeof(long))
+            { _entType = EffectFilterBind.StaticNum(m); break; }
+        return load;
+    }
+
+    // Optional owner chain for pets/summons/bullets: ZEntityMgr.Instance → GetEntity(uuid) → GetAttr<long>(91 / 90).
+    // Missing → pets & summons are simply never hidden (kept), the rest of the filter still works.
+    private static void BindOwner(Type entT)
+    {
+        const BindingFlags pi = BindingFlags.Public | BindingFlags.Instance;
+        var mgrT = StellarInterop.FindType("Panda.ZGame.ZEntityMgr");
+        var attrEnum = StellarInterop.FindType("Zproto.EAttrType");
+        if (mgrT != null)
+        {
+            _mgrInstance = EffectFilterBind.StaticRef(mgrT.GetProperty("Instance",
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy)?.GetGetMethod());
+            foreach (var m in mgrT.GetMethods(pi))
+                if (m.Name == "GetEntity" && m.GetParameters() is { Length: 1 } ps && ps[0].ParameterType == typeof(long))
+                { _getEntity = EffectFilterBind.Ref1Long(m); break; }
+        }
+        if (attrEnum == null) return;
+        foreach (var m in entT.GetMethods(pi))
+        {
+            if (m.Name != "GetAttr" || !m.IsGenericMethodDefinition) continue;
+            var ps = m.GetParameters();
+            if (ps.Length != 2 || ps[0].ParameterType != attrEnum || ps[1].ParameterType != typeof(bool)) continue;
+            var gl = m.MakeGenericMethod(typeof(long));
+            _attrTop = EffectFilterBind.AttrLong(gl, Enum.ToObject(attrEnum, 91));   // AttrTopSummonerId
+            _attrSum = EffectFilterBind.AttrLong(gl, Enum.ToObject(attrEnum, 90));   // AttrSummonerId
+            break;
+        }
+    }
+
+    /// <summary>1 Hz from the plugin: re-fetch the entity manager wrapper so owner lookups never fetch it per call.</summary>
+    public static void RefreshManager()
+    {
+        try { _mgr = _mgrInstance?.Invoke(); } catch { _mgr = null; }
+    }
+
+    /// <summary>Scene change / rule change / new local uuid: forget every cached decision and owner.</summary>
+    public static void ResetCaches()
+    {
+        _decided.Clear();
+        _ownerOf.Clear();
+    }
+
+    /// <summary>Caster type of my own uuid (10 = Char expected) — logged once per new uuid to verify the uuid source.</summary>
+    public static long EntTypeOf(long uuid) => uuid != 0 && _entType != null ? _entType(uuid) : -1;
+
+    // ── Hook ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    // false = skip LoadEffect. Any error keeps the effect (fail visible, never fail hidden).
+    private static bool Prefix(object __instance)
+    {
+        if (!Active) return true;
+        long t0 = _diag ? Stopwatch.GetTimestamp() : 0;
+        bool hide = false;
+        try { hide = Decide(__instance); }
+        catch (Exception ex)
+        {
+            _errors++;
+            if (_errLogged++ < 5) _log?.Invoke($"[EffFilter] decide error: {ex.InnerException?.Message ?? ex.Message}");
+        }
+        if (_diag)
+        {
+            long dt = Stopwatch.GetTimestamp() - t0;
+            _calls++;
+            if (hide) _hides++;
+            _costTicks += dt;
+            if (dt > _costMax) _costMax = dt;
+        }
+        return !hide;
+    }
+
+    private static bool Decide(object eff)
+    {
+        long uid = _effUid != null ? _effUid(eff) : 0;
+        if (uid != 0 && _decided.TryGetValue(uid, out bool cached)) return cached;
+
+        var ctx = _ctxOf!(eff);
+        if (ctx == null) return false;   // not cached: a retry may carry the context
+
+        bool hide = Rule(ctx);
+        if (uid != 0)
+        {
+            if (_decided.Count >= MaxCache) _decided.Clear();
+            _decided[uid] = hide;
+        }
+        if (hide) HiddenThisFight++;
+        return hide;
+    }
+
+    // Cheapest reads first: telegraph / important, then the caster, then (only for a player caster) target and source.
+    private static bool Rule(object ctx)
+    {
+        if ((int)_type!(ctx) == TypeWarning || _important!(ctx)) return false;
+        long me = LocalUuid;
+        long from = _from!(ctx);
+        if (from == 0 || from == me) return false;
+        if (!CastByOtherPlayer(from, me)) return false;
+        if (KeepOnMe && _belong!(ctx) == me) return false;
+        if (KeepBuffs && (int)_src!(ctx) == SrcBuff) return false;
+        return true;
+    }
+
+    private static bool CastByOtherPlayer(long from, long me)
+    {
+        int t = (int)_entType!(from);
+        if (t == EntChar) return true;                          // from != me checked by the caller
+        if (!HidePets || (t != EntPet && t != EntBullet && t != EntClientBullet)) return false;
+        long owner = OwnerOf(from);
+        return owner != 0 && owner != me && (int)_entType!(owner) == EntChar;
+    }
+
+    // Top summoner of a pet/bullet, read once per uuid (0 = none / entity not live — cached too, so a bullet that never
+    // becomes a live entity costs one GetEntity, not one per effect).
+    private static long OwnerOf(long uuid)
+    {
+        if (_ownerOf.TryGetValue(uuid, out long o)) return o;
+        if (_ownerOf.Count >= MaxCache) _ownerOf.Clear();
+        o = 0;
+        var mgr = _mgr;
+        if (mgr != null && _getEntity != null && _attrTop != null)
+        {
+            if (_diag) _ownerLookups++;
+            var ent = _getEntity(mgr, uuid);
+            if (ent != null)
+            {
+                o = _attrTop(ent);
+                if (o == 0 && _attrSum != null) o = _attrSum(ent);
+            }
+        }
+        _ownerOf[uuid] = o;
+        return o;
+    }
+
+    // ── Diagnostics flush (plugin tick, every 10 s; nothing when diagnostics are off or nothing loaded) ──────────
+    public static void FlushDiag(double windowSec)
+    {
+        if (!_diag || _calls == 0 || _log == null) return;
+        double us = 1_000_000.0 / Stopwatch.Frequency;
+        _log($"[EffFilter] {windowSec:0}s: calls={_calls} hid={_hides} cost avg={_costTicks * us / _calls:0.00}µs " +
+             $"max={_costMax * us:0.0}µs ownerLookups={_ownerLookups} decided={_decided.Count} owners={_ownerOf.Count} " +
+             $"errors={_errors} me={LocalUuid} fight={HiddenThisFight}");
+        _calls = _hides = _errors = _ownerLookups = 0;
+        _costTicks = _costMax = 0;
+    }
+}

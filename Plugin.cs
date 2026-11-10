@@ -16,6 +16,8 @@ namespace Stellar.MultiTool;
 //   • Profile-card "Auto-Accept" button — opens a per-player dialog with that person's Party / Social switches.
 //   • Language Unlock — show every text language (and extra voice languages) this client ships in the game's own
 //     Settings > Language; applies from the next game start (moved from MahiruUtility, settings imported once).
+//   • Effect Filter — skip loading the skill effects other players cast (FPS in crowded fights); monsters, telegraphs
+//     and my own effects always stay (EffectFilterPatch.cs).
 //
 // Adding a tool:
 //   1. Put it in its own partial `Plugin.<Feature>.cs` with an `Init<Feature>()` that registers its window via
@@ -45,6 +47,7 @@ public sealed partial class Plugin : IStellarPlugin
         InitBandMute();      // Band Mute: silence specific other players' band instruments (Plugin.BandMute.cs)
         InitInviteAccept();   // Auto-Accept Invites: party + interaction invite auto-accept (Plugin.InviteAccept.cs)
         InitProfileCardAdd(); // "Auto-Accept" on the native profile card → per-player dialog — needs the lists (Plugin.ProfileCardAdd.cs)
+        InitEffectFilter();   // Effect Filter: skip loading other players' skill effects (Plugin.EffectFilter.cs)
 
         // Load-time migrations above only STAGE (Set) and raise _cfgLoadDirty; persist them with ONE save here. Each
         // Init saving on its own meant back-to-back writes, and the framework's single-thread writer has no retry on
@@ -127,6 +130,7 @@ public sealed partial class Plugin : IStellarPlugin
         DisposeInviteAddDialog();
         DisposeInviteAccept();
         DisposeLanguageUnlock();
+        DisposeEffectFilter();
         foreach (var l in _launchers) l.Dispose();
         foreach (var w in _windows) w.Remove();
     }
