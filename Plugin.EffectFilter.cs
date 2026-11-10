@@ -6,7 +6,7 @@ namespace Stellar.MultiTool;
 // Effect Filter: skip loading other players' skill effects (mechanism + rule: EffectFilterPatch.cs; window:
 // Plugin.EffectFilterWindow.cs). This partial owns the settings, the lazy patch install and a 1 s tick.
 //
-// The tick (Framework.Update + accumulator — SDK 2.28 has no IFramework.Every) runs only while the master is on:
+// The tick (Framework.Update + accumulator — SDK 2.28 has no IFramework.Every) runs only while some setting can hide:
 // refreshes my uuid + the entity-manager wrapper, re-evaluates Active (scope = dungeon run id), retries the install
 // every 10 s until the game types load, and flushes the diagnostics line. Off = one bool read per frame.
 // Fight boundaries: CombatState.Changed(true) resets the "hid N this fight" counter; SceneChanged resets the counter
@@ -15,6 +15,9 @@ public sealed partial class Plugin
 {
     private bool _effOn;              // master: "Other players' skill effects" (default OFF on first install)
     private bool _effPets;            // "Their pets & summons"
+    private bool _effShowMarkers;     // SHOW rows (default ON = shown; off = hidden) — "Telegraphs & important markers"
+    private bool _effShowMonsters;    // "Boss & monster effects"
+    private bool _effShowMine;        // "My own effects"
     private bool _effKeepOnMe;        // "Effects that land on me"
     private bool _effKeepBuffs;       // "Heal & buff zones"
     private bool _effEverywhere;      // Where: false = Dungeons & raids (default), true = Everywhere
@@ -30,18 +33,21 @@ public sealed partial class Plugin
 
     private void InitEffectFilter()
     {
-        _effOn         = _cfg.Get<bool>("effect_filter_enabled",    false);
-        _effPets       = _cfg.Get<bool>("effect_filter_pets",       true);
-        _effKeepOnMe   = _cfg.Get<bool>("effect_filter_keep_on_me", true);
-        _effKeepBuffs  = _cfg.Get<bool>("effect_filter_keep_buffs", true);
-        _effEverywhere = _cfg.Get<bool>("effect_filter_everywhere", false);
+        _effOn           = _cfg.Get<bool>("effect_filter_enabled",       false);
+        _effPets         = _cfg.Get<bool>("effect_filter_pets",          true);
+        _effShowMarkers  = _cfg.Get<bool>("effect_filter_show_markers",  true);
+        _effShowMonsters = _cfg.Get<bool>("effect_filter_show_monsters", true);
+        _effShowMine     = _cfg.Get<bool>("effect_filter_show_mine",     true);
+        _effKeepOnMe     = _cfg.Get<bool>("effect_filter_keep_on_me",    true);
+        _effKeepBuffs    = _cfg.Get<bool>("effect_filter_keep_buffs",    true);
+        _effEverywhere   = _cfg.Get<bool>("effect_filter_everywhere",    false);
         PushEffectRules();
 
         _services.Framework.Update        += OnEffectFilterUpdate;
         _services.ClientState.SceneChanged += OnEffectSceneChanged;
         _services.CombatState.Changed     += OnEffectCombatChanged;
         _effSubscribed = true;
-        if (_effOn) TryInstallEffectFilter();
+        if (EffAnyHide) TryInstallEffectFilter();
 
         // The help popover first: the window's "?" fill funcs read _tipWindow.
         InitHelpTip();
@@ -65,23 +71,13 @@ public sealed partial class Plugin
     }
 
     // ── settings (one save per click, MultiTool-Plugin.md §4.1) ──────────────────────────────────────────────────
-    private void ToggleEffMaster()
-    {
-        _effOn = !_effOn;
-        SaveEffBool("effect_filter_enabled", _effOn);
-        if (_effOn)
-        {
-            TryInstallEffectFilter();
-            // The tick doesn't run while off, so "me" may be stale (another character since) — re-read before arming.
-            RefreshEffMe();
-            EffectFilterPatch.RefreshManager();
-        }
-        UpdateEffActive();
-    }
-
-    private void ToggleEffPets()      { _effPets      = !_effPets;      SaveEffBool("effect_filter_pets",       _effPets); }
-    private void ToggleEffKeepOnMe()  { _effKeepOnMe  = !_effKeepOnMe;  SaveEffBool("effect_filter_keep_on_me", _effKeepOnMe); }
-    private void ToggleEffKeepBuffs() { _effKeepBuffs = !_effKeepBuffs; SaveEffBool("effect_filter_keep_buffs", _effKeepBuffs); }
+    private void ToggleEffMaster()       => SaveEffBool("effect_filter_enabled",       _effOn           = !_effOn);
+    private void ToggleEffPets()         => SaveEffBool("effect_filter_pets",          _effPets         = !_effPets);
+    private void ToggleEffShowMarkers()  => SaveEffBool("effect_filter_show_markers",  _effShowMarkers  = !_effShowMarkers);
+    private void ToggleEffShowMonsters() => SaveEffBool("effect_filter_show_monsters", _effShowMonsters = !_effShowMonsters);
+    private void ToggleEffShowMine()     => SaveEffBool("effect_filter_show_mine",     _effShowMine     = !_effShowMine);
+    private void ToggleEffKeepOnMe()     => SaveEffBool("effect_filter_keep_on_me",    _effKeepOnMe     = !_effKeepOnMe);
+    private void ToggleEffKeepBuffs()    => SaveEffBool("effect_filter_keep_buffs",    _effKeepBuffs    = !_effKeepBuffs);
 
     private void SetEffEverywhere(bool everywhere)
     {
@@ -91,19 +87,36 @@ public sealed partial class Plugin
         UpdateEffActive();
     }
 
+    // Every setting change may switch the filter between "can hide" and "keeps everything", so each one re-arms.
     private void SaveEffBool(string key, bool value)
     {
         _cfg.Set<bool>(key, value);
         _cfg.Save();
         PushEffectRules();
+        if (EffAnyHide)
+        {
+            TryInstallEffectFilter();
+            // The tick doesn't run while nothing can hide, so "me" may be stale (another character since) — re-read.
+            RefreshEffMe();
+            EffectFilterPatch.RefreshManager();
+        }
+        UpdateEffActive();
     }
+
+    // Can any setting hide something? The master hides other players; a SHOW row off hides its class. "Effects that land
+    // on me" / "Heal & buff zones" only KEEP (they override the rows below them), so turning them off alone hides nothing.
+    private bool EffAnyHide => _effOn || !_effShowMarkers || !_effShowMonsters || !_effShowMine;
 
     // A rule change invalidates every cached decision (an effect hidden under the old rule may now be kept).
     private void PushEffectRules()
     {
-        EffectFilterPatch.HidePets  = _effPets;
-        EffectFilterPatch.KeepOnMe  = _effKeepOnMe;
-        EffectFilterPatch.KeepBuffs = _effKeepBuffs;
+        EffectFilterPatch.HideOthers   = _effOn;
+        EffectFilterPatch.HidePets     = _effPets;
+        EffectFilterPatch.ShowMarkers  = _effShowMarkers;
+        EffectFilterPatch.ShowMonsters = _effShowMonsters;
+        EffectFilterPatch.ShowMine     = _effShowMine;
+        EffectFilterPatch.KeepOnMe     = _effKeepOnMe;
+        EffectFilterPatch.KeepBuffs    = _effKeepBuffs;
         EffectFilterPatch.ResetCaches();
     }
 
@@ -126,7 +139,7 @@ public sealed partial class Plugin
 
     // Active needs my uuid: without it "my own effects" can't be told apart from another player's.
     private void UpdateEffActive() =>
-        EffectFilterPatch.Active = _effOn && EffectFilterPatch.Installed && EffectFilterPatch.LocalUuid != 0 && EffInScope;
+        EffectFilterPatch.Active = EffAnyHide && EffectFilterPatch.Installed && EffectFilterPatch.LocalUuid != 0 && EffInScope;
 
     private void RefreshEffMe()
     {
@@ -143,7 +156,7 @@ public sealed partial class Plugin
 
     private void OnEffectFilterUpdate(float dt)
     {
-        if (!_effOn) return;
+        if (!EffAnyHide) return;
         _effTick += dt;
         if (_effTick < EffTickInterval) return;
         _effTick = 0f;
@@ -183,15 +196,15 @@ public sealed partial class Plugin
     }
 
     // ── status text (hub card + window header) ───────────────────────────────────────────────────────────────────
-    private bool EffWaiting => _effOn && !EffInScope;
-    private bool EffFiltering => _effOn && EffInScope && !EffectFilterPatch.HardFailed;
+    private bool EffWaiting => EffAnyHide && !EffInScope;
+    private bool EffFiltering => EffAnyHide && EffInScope && !EffectFilterPatch.HardFailed;
 
     private string EffHubStatusText() =>
-        !_effOn ? "Off" : _effEverywhere ? "On · everywhere" : "On · dungeons & raids";
+        !EffAnyHide ? "Off" : _effEverywhere ? "On · everywhere" : "On · dungeons & raids";
 
     private string EffWindowStatusText()
     {
-        if (!_effOn) return "Off · all effects shown";
+        if (!EffAnyHide) return "Off · all effects shown";
         if (EffectFilterPatch.HardFailed) return "On · not available in this game version";
         if (EffWaiting) return "On · waiting for a dungeon";
         return EffHidText();

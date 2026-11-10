@@ -16,21 +16,24 @@ namespace Stellar.MultiTool;
 /// <item>Hook: Harmony PREFIX on <c>Panda.ZEffect.ZEffect.LoadEffect()</c> (no params). Returning false skips the load;
 /// the effect stays registered and the game's own life check removes it. Skipped effects are also silent (audio plays
 /// after load).</item>
-/// <item>Rule — the CASTER decides, not the target: hide iff Type ≠ Warning (telegraph) AND !IsImportant AND the caster
-/// is another player (<c>UuidToEntType(FromUuid) == Char</c>, not me), or — with "pets &amp; summons" on — a
-/// Pet/Bullet/ClientBullet whose top summoner (<c>AttrTopSummonerId=91</c>, fallback 90) is another player's Char.
-/// Never hidden: monsters/NPC/scene objects/zones/unknown casters, my own, Warning, IsImportant; optionally effects
-/// that land on me (BelongUuid) and buff-sourced ones (heal/buff zones).</item>
+/// <item>Rule — the CASTER decides, not the target; every row is a user toggle, first match wins (Rule):
+/// a. telegraph (Type = Warning) or IsImportant → kept iff "Telegraphs &amp; important markers";
+/// b. lands on me (BelongUuid = me) and "Effects that land on me" → kept;
+/// c. buff-sourced and "Heal &amp; buff zones" → kept;
+/// d. cast by me / my pet, summon or bullet → kept iff "My own effects";
+/// e. cast by another player (<c>UuidToEntType(FromUuid) == Char</c>) or — top summoner (<c>AttrTopSummonerId=91</c>,
+/// fallback 90) — their Pet/Bullet/ClientBullet → hidden iff the master is on (summons: and "pets &amp; summons");
+/// f. anything else (monster/NPC/scene object/zone/unknown caster) → kept iff "Boss &amp; monster effects".</item>
 /// <item>Accessors are the Experiment census's (validated in game), bound once into typed delegates
 /// (<see cref="EffectFilterBind"/>).</item>
 /// </list>
 /// Perf (Plugin-Performance-Rules.md §7) — fires per effect load, hundreds/s in a raid:
 /// <list type="bullet">
-/// <item>Inactive (master off / outside the chosen scope / my uuid unknown) = one static bool read.</item>
+/// <item>Inactive (nothing can hide / outside the chosen scope / my uuid unknown) = one static bool read.</item>
 /// <item>The decision is cached per effect uid (the game may call LoadEffect again for the same uid → same answer,
 /// O(1), no context read), and the uid is read BEFORE the context so a repeat skips the context wrapper.</item>
-/// <item>The owner lookup (GetEntity + GetAttr) runs only for Pet/Bullet casters, once per caster uuid (cached,
-/// misses too). Char and Monster casters decide from the uuid alone.</item>
+/// <item>The owner lookup (GetEntity + GetAttr) runs only for Pet/Bullet casters whose answer can change the outcome
+/// (see Relation), once per caster uuid (cached, misses too). Char and Monster casters decide from the uuid alone.</item>
 /// <item>Caches clear on scene change, on a rule change and when my uuid changes; capped at 16384 entries.</item>
 /// <item>No strings or Invoke on the hot path; timing only when <see cref="StellarDiagnostics"/> is on.</item>
 /// </list>
@@ -41,10 +44,14 @@ namespace Stellar.MultiTool;
 internal static class EffectFilterPatch
 {
     // ── Knobs (Plugin.EffectFilter.cs) ───────────────────────────────────────────────────────────────────────────
-    public static bool Active;               // master on && in scope && my uuid known — the ONE read when off
-    public static bool HidePets  = true;     // "Their pets & summons"
-    public static bool KeepOnMe  = true;     // "Effects that land on me"
-    public static bool KeepBuffs = true;     // "Heal & buff zones"
+    public static bool Active;               // something can hide && in scope && my uuid known — the ONE read when off
+    public static bool HideOthers;           // master: "Other players' skill effects"
+    public static bool HidePets     = true;  // "Their pets & summons"
+    public static bool ShowMarkers  = true;  // "Telegraphs & important markers"
+    public static bool ShowMonsters = true;  // "Boss & monster effects"
+    public static bool ShowMine     = true;  // "My own effects"
+    public static bool KeepOnMe     = true;  // "Effects that land on me"
+    public static bool KeepBuffs    = true;  // "Heal & buff zones"
     public static long LocalUuid;            // CombatSnapshot.LocalEntityId, refreshed by the plugin's 1 s tick
     public static int  HiddenThisFight;      // first-time hides (a retried uid isn't recounted); reset per fight/scene
     public static bool Installed  { get; private set; }
@@ -220,26 +227,39 @@ internal static class EffectFilterPatch
         return hide;
     }
 
-    // Cheapest reads first: telegraph / important, then the caster, then (only for a player caster) target and source.
+    // First match wins (class summary a–f). Cheapest reads first: type/important, then target and source, then the caster.
     private static bool Rule(object ctx)
     {
-        if ((int)_type!(ctx) == TypeWarning || _important!(ctx)) return false;
+        if ((int)_type!(ctx) == TypeWarning || _important!(ctx)) return !ShowMarkers;
         long me = LocalUuid;
-        long from = _from!(ctx);
-        if (from == 0 || from == me) return false;
-        if (!CastByOtherPlayer(from, me)) return false;
         if (KeepOnMe && _belong!(ctx) == me) return false;
         if (KeepBuffs && (int)_src!(ctx) == SrcBuff) return false;
-        return true;
+        switch (Relation(_from!(ctx), me))
+        {
+            case RelMine:        return !ShowMine;
+            case RelOther:       return HideOthers;
+            case RelOtherSummon: return HideOthers && HidePets;
+            default:             return !ShowMonsters;
+        }
     }
 
-    private static bool CastByOtherPlayer(long from, long me)
+    private const int RelWorld = 0, RelMine = 1, RelOther = 2, RelOtherSummon = 3;
+
+    // Who cast it. A pet/bullet's owner is looked up only when the answer can matter: with every setting that could
+    // tell its owner apart at its default (keep), any class keeps it, so it is reported as World without the lookup.
+    // An owner that can't be resolved (entity not live) also counts as World — a monster's bullet, most often.
+    private static int Relation(long from, long me)
     {
+        if (from == 0) return RelWorld;
+        if (from == me) return RelMine;
         int t = (int)_entType!(from);
-        if (t == EntChar) return true;                          // from != me checked by the caller
-        if (!HidePets || (t != EntPet && t != EntBullet && t != EntClientBullet)) return false;
+        if (t == EntChar) return RelOther;
+        if (t != EntPet && t != EntBullet && t != EntClientBullet) return RelWorld;
+        if (!(HideOthers && HidePets) && ShowMine && ShowMonsters) return RelWorld;
         long owner = OwnerOf(from);
-        return owner != 0 && owner != me && (int)_entType!(owner) == EntChar;
+        if (owner == 0) return RelWorld;
+        if (owner == me) return RelMine;
+        return (int)_entType!(owner) == EntChar ? RelOtherSummon : RelWorld;
     }
 
     // Top summoner of a pet/bullet, read once per uuid (0 = none / entity not live — cached too, so a bullet that never
