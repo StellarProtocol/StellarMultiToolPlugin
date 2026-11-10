@@ -1,16 +1,25 @@
 using System;
 using System.Globalization;
+using Stellar.Abstractions.Domain;
 
 namespace Stellar.MultiTool;
 
 // Effect Filter: skip loading other players' skill effects (mechanism + rule: EffectFilterPatch.cs; window:
 // Plugin.EffectFilterWindow.cs). This partial owns the settings, the lazy patch install and a 1 s tick.
 //
-// The tick (Framework.Update + accumulator — SDK 2.28 has no IFramework.Every) runs only while some setting can hide:
-// refreshes my uuid + the entity-manager wrapper, re-evaluates Active (scope = dungeon run id), retries the install
-// every 10 s until the game types load, and flushes the diagnostics line. Off = one bool read per frame.
-// Fight boundaries: CombatState.Changed(true) resets the "hid N this fight" counter; SceneChanged resets the counter
-// and every cache. Both handlers are O(1) apart from clearing the caches once per scene.
+// The tick (Framework.Update + accumulator — SDK 2.28 has no IFramework.Every) and the SceneChanged / Logout /
+// CombatState handlers are SUBSCRIBED only while some setting can hide (SyncEffSubscriptions) — otherwise the filter is
+// fully inert. The tick refreshes the world gate at 10 Hz; at 1 Hz it refreshes my uuid + the entity-manager wrapper,
+// re-evaluates Active (scope = dungeon run id), retries the install every 10 s until the game types bind, and flushes
+// the diagnostics line. Fight boundaries: CombatState.Changed(true) resets the "hid N this fight" counter;
+// SceneChanged resets the counter and every cache. All handlers are O(1) apart from clearing the caches once per scene.
+//
+// ⚠️ WORLD GATE (Game-Phases-and-Tick-Gating.md "Patching ZEffect.LoadEffect before world entry breaks login"):
+// installing the LoadEffect prefix at plugin construction / the title screen made the next world entry fail
+// ("disconnected [50000]" / "Scene switch failed"). So NOTHING here binds game types, installs the patch or touches
+// ZEntityMgr until Phase == World && IsWorldActive && !Loading — a persisted-ON filter installs on its first world
+// tick. Once installed, EffectFilterPatch.WorldReady keeps the prefix inert outside that state: the framework tick
+// only runs in-world, so the falling edge comes from SceneChanged (OnLeaveScene) / Logout, the rising edge from the tick.
 public sealed partial class Plugin
 {
     private bool _effOn;              // master: "Other players' skill effects" (default OFF on first install)
@@ -23,10 +32,11 @@ public sealed partial class Plugin
     private bool _effEverywhere;      // Where: false = Dungeons & raids (default), true = Everywhere
 
     private HarmonyLib.Harmony? _effHarmony;   // created once; install retries reuse it
-    private float _effTick;
+    private float _effTick, _effGateTick;
     private long  _effLastInstallTry, _effDiagStart, _effLastMe;
     private bool  _effSubscribed;
 
+    private const float EffGateInterval  = 0.1f;   // world gate: 10 Hz (three field reads)
     private const float EffTickInterval  = 1f;
     private const long  EffInstallRetryMs = 10_000;
     private const long  EffDiagWindowMs   = 10_000;
@@ -42,12 +52,9 @@ public sealed partial class Plugin
         _effKeepBuffs    = _cfg.Get<bool>("effect_filter_keep_buffs",    true);
         _effEverywhere   = _cfg.Get<bool>("effect_filter_everywhere",    false);
         PushEffectRules();
-
-        _services.Framework.Update        += OnEffectFilterUpdate;
-        _services.ClientState.SceneChanged += OnEffectSceneChanged;
-        _services.CombatState.Changed     += OnEffectCombatChanged;
-        _effSubscribed = true;
-        if (EffAnyHide) TryInstallEffectFilter();
+        // Construction is never in world: subscribe only (when something can hide); the install waits for the first
+        // world tick.
+        SyncEffSubscriptions();
 
         // The help popover first: the window's "?" fill funcs read _tipWindow.
         InitHelpTip();
@@ -59,13 +66,8 @@ public sealed partial class Plugin
     private void DisposeEffectFilter()
     {
         EffectFilterPatch.Active = false;
-        if (_effSubscribed)
-        {
-            try { _services.Framework.Update        -= OnEffectFilterUpdate; } catch { }
-            try { _services.ClientState.SceneChanged -= OnEffectSceneChanged; } catch { }
-            try { _services.CombatState.Changed     -= OnEffectCombatChanged; } catch { }
-            _effSubscribed = false;
-        }
+        EffectFilterPatch.WorldReady = false;
+        UnsubscribeEff();
         DisposeHelpTip();
         // The patch itself is unpatched by IHarmonyHost on plugin dispose — never here (hot method).
     }
@@ -93,15 +95,51 @@ public sealed partial class Plugin
         _cfg.Set<bool>(key, value);
         _cfg.Save();
         PushEffectRules();
-        if (EffAnyHide)
+        SyncEffSubscriptions();
+        if (EffAnyHide && EffWorldReady)
         {
             TryInstallEffectFilter();
             // The tick doesn't run while nothing can hide, so "me" may be stale (another character since) — re-read.
             RefreshEffMe();
             EffectFilterPatch.RefreshManager();
         }
+        RefreshEffWorldGate();
         UpdateEffActive();
     }
+
+    // Handlers live only while something can hide; nothing-can-hide = zero per-frame or per-event work.
+    private void SyncEffSubscriptions()
+    {
+        if (!EffAnyHide) { UnsubscribeEff(); return; }
+        if (_effSubscribed) return;
+        _services.Framework.Update         += OnEffectFilterUpdate;
+        _services.ClientState.SceneChanged += OnEffectSceneChanged;
+        _services.ClientState.Logout       += OnEffectLogout;
+        _services.CombatState.Changed      += OnEffectCombatChanged;
+        _effSubscribed = true;
+    }
+
+    private void UnsubscribeEff()
+    {
+        if (!_effSubscribed) return;
+        try { _services.Framework.Update         -= OnEffectFilterUpdate; } catch { }
+        try { _services.ClientState.SceneChanged -= OnEffectSceneChanged; } catch { }
+        try { _services.ClientState.Logout       -= OnEffectLogout; } catch { }
+        try { _services.CombatState.Changed      -= OnEffectCombatChanged; } catch { }
+        _effSubscribed = false;
+    }
+
+    // The ONLY state in which game types may be bound, the patch installed or ZEntityMgr touched.
+    private bool EffWorldReady
+    {
+        get
+        {
+            var cs = _services.ClientState;
+            return cs.Phase == GamePhase.World && cs.IsWorldActive && (cs.UiState & GameUIState.Loading) == 0;
+        }
+    }
+
+    private void RefreshEffWorldGate() => EffectFilterPatch.WorldReady = EffectFilterPatch.Installed && EffWorldReady;
 
     // Can any setting hide something? The master hides other players; a SHOW row off hides its class. "Effects that land
     // on me" / "Heal & buff zones" only KEEP (they override the rows below them), so turning them off alone hides nothing.
@@ -121,7 +159,7 @@ public sealed partial class Plugin
     }
 
     // ── install + active gate ────────────────────────────────────────────────────────────────────────────────────
-    // Types may not resolve at plugin construction (persisted-ON at boot) → retried from the tick every 10 s.
+    // Called only while EffWorldReady (see the class note); a failed type lookup retries from the tick every 10 s.
     private void TryInstallEffectFilter()
     {
         _effLastInstallTry = Environment.TickCount64;
@@ -131,6 +169,7 @@ public sealed partial class Plugin
         _effDiagStart = Environment.TickCount64;
         RefreshEffMe();
         EffectFilterPatch.RefreshManager();
+        RefreshEffWorldGate();
         UpdateEffActive();
     }
 
@@ -157,7 +196,13 @@ public sealed partial class Plugin
     private void OnEffectFilterUpdate(float dt)
     {
         if (!EffAnyHide) return;
-        _effTick += dt;
+        _effGateTick += dt;
+        if (_effGateTick < EffGateInterval) return;
+        _effGateTick = 0f;
+        bool ready = EffWorldReady;
+        EffectFilterPatch.WorldReady = ready && EffectFilterPatch.Installed;
+        if (!ready) return;   // loading / not in world: no binding, no install, no ZEntityMgr
+        _effTick += EffGateInterval;
         if (_effTick < EffTickInterval) return;
         _effTick = 0f;
         try
@@ -165,7 +210,8 @@ public sealed partial class Plugin
             long now = Environment.TickCount64;
             if (!EffectFilterPatch.Installed)
             {
-                if (now - _effLastInstallTry >= EffInstallRetryMs) TryInstallEffectFilter();
+                // First world tick installs at once (persisted ON); a failed type lookup retries every 10 s.
+                if (_effLastInstallTry == 0 || now - _effLastInstallTry >= EffInstallRetryMs) TryInstallEffectFilter();
                 return;
             }
             RefreshEffMe();
@@ -186,6 +232,16 @@ public sealed partial class Plugin
         EffectFilterPatch.ResetCaches();
         // Disarm until the next tick re-reads "me" (a scene change can be a relog onto another character — a stale uuid
         // would hide MY effects). Also turns the filter off at once when leaving a dungeon. Costs ≤1 s unfiltered.
+        EffectFilterPatch.LocalUuid = 0;
+        // Leaving a scene flips IsWorldActive false BEFORE this event, so the live re-read drops the gate at once (the
+        // tick is frozen until the next world entry); entering a scene usually still shows Loading → stays closed.
+        RefreshEffWorldGate();
+        UpdateEffActive();
+    }
+
+    private void OnEffectLogout()
+    {
+        EffectFilterPatch.WorldReady = false;
         EffectFilterPatch.LocalUuid = 0;
         UpdateEffActive();
     }

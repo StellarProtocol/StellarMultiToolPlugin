@@ -9,7 +9,8 @@ namespace Stellar.MultiTool;
 /// validated them in game): each interop getter/method is turned ONCE into a Func (one cast + one call per read, no
 /// <c>Invoke</c>, no boxing). Any shape surprise → null, and the caller reports it unresolved. Enum/uint values come back
 /// as long through <see cref="Unsafe"/> (no box, no Convert). Constraint is <c>struct</c>, not <c>unmanaged</c>: the
-/// IL2CPP corlib refs lack IsUnmanagedAttribute (CS0656).
+/// IL2CPP corlib refs lack IsUnmanagedAttribute (CS0656). Bind ONLY in world (Phase == World &amp;&amp; IsWorldActive
+/// &amp;&amp; !Loading) — binding/patching at the title screen broke world entry (Plugin.EffectFilter.cs class note).
 /// </summary>
 internal static class EffectFilterBind
 {

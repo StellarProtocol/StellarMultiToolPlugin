@@ -37,7 +37,8 @@ namespace Stellar.MultiTool;
 /// <item>Caches clear on scene change, on a rule change and when my uuid changes; capped at 16384 entries.</item>
 /// <item>No strings or Invoke on the hot path; timing only when <see cref="StellarDiagnostics"/> is on.</item>
 /// </list>
-/// Installed on first enable and never unpatched at runtime (state-gated; runtime unpatch of a hot method risks the
+/// Installed on the first IN-WORLD tick after enable — never at construction / title screen / loading, which broke world
+/// entry (see <see cref="WorldReady"/>) — and never unpatched at runtime (state-gated; runtime unpatch of a hot method risks the
 /// trampoline crash — Framework-Interop-Foundation.md "LAZY-INSTALL"); IHarmonyHost unpatches on plugin dispose.
 /// Main thread only (ZEffectManager.LateUpdate drives loads).
 /// </summary>
@@ -45,6 +46,10 @@ internal static class EffectFilterPatch
 {
     // ── Knobs (Plugin.EffectFilter.cs) ───────────────────────────────────────────────────────────────────────────
     public static bool Active;               // something can hide && in scope && my uuid known — the ONE read when off
+    // Phase == World && IsWorldActive && !Loading (plugin: 10 Hz tick + SceneChanged/Logout). Outside it the prefix keeps
+    // every effect untouched — loading screens / scene switches are never filtered (Game-Phases-and-Tick-Gating.md
+    // "Patching ZEffect.LoadEffect before world entry breaks login").
+    public static bool WorldReady;
     public static bool HideOthers;           // master: "Other players' skill effects"
     public static bool HidePets     = true;  // "Their pets & summons"
     public static bool ShowMarkers  = true;  // "Telegraphs & important markers"
@@ -189,7 +194,7 @@ internal static class EffectFilterPatch
     // false = skip LoadEffect. Any error keeps the effect (fail visible, never fail hidden).
     private static bool Prefix(object __instance)
     {
-        if (!Active) return true;
+        if (!Active || !WorldReady) return true;
         long t0 = _diag ? Stopwatch.GetTimestamp() : 0;
         bool hide = false;
         try { hide = Decide(__instance); }
