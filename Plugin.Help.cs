@@ -61,9 +61,9 @@ public sealed partial class Plugin
                 OnClickWithRect = r => ToggleTip(key, r),
             })
         {
-            FillColorFn = () => _tipKey == key && _tipWindow.IsShown ? Over(AccentColor() with { A = 0.35f }, NeutralFill())
+            FillColorFn = () => Fade(_tipKey == key && _tipWindow.IsShown ? Over(AccentColor() with { A = 0.35f }, NeutralFill())
                               : hover.On ? Over(TextColor() with { A = HoverMix }, NeutralFill())
-                              : NeutralFill(),
+                              : NeutralFill()),   // window opacity (Plugin.Style.cs Fade)
             CornerRadius = RoundRadius(HelpSize), PaddingX = 0f, PaddingY = 0f,
         };
     }
@@ -151,7 +151,7 @@ public sealed partial class Plugin
         // The help text: one raised tile (house Tile colour, theme-live), wrapping inside the 360 px popover.
         new BubbleElement(new TextElement(TipBody, Color: () => TextColor()))
         {
-            FillColorFn = () => TileColor(), CornerRadius = 6f, PaddingX = 10f, PaddingY = 8f,
+            FillColorFn = () => Fade(TileColor()), CornerRadius = 6f, PaddingX = 10f, PaddingY = 8f,
         },
     }, Gap: 10f);
 
@@ -163,7 +163,7 @@ public sealed partial class Plugin
                 FontSize: 18) { Bold = true, CenterGlyphs = true },
         }, Gap: 0.01f, Justify: RowJustify.Center))
     {
-        FillColorFn = () => AccentColor(), CornerRadius = MathF.Round(TipIconSize * 0.22f), PaddingX = 0f, PaddingY = 0f,
+        FillColorFn = () => Fade(AccentColor()), CornerRadius = MathF.Round(TipIconSize * 0.22f), PaddingX = 0f, PaddingY = 0f,
     }, Width: TipIconSize);
 
     // Icon-only ✕ (plain text — bold ✕ can draw blank): a round 24 px hover wash around a Bare selectable.
@@ -175,7 +175,8 @@ public sealed partial class Plugin
         }, Gap: 0.01f, Justify: RowJustify.Center),
         OnClick: CloseTip) { Bare = true, OnHover = over => _tipCloseHover.On = over })
     {
-        FillColorFn = () => _tipCloseHover.On ? Menu.MenuText with { A = HoverMix } : Transparent,
+        // A translucent wash over the faded window: the factor goes on its own alpha (Fade(Transparent) stays clear).
+        FillColorFn = () => _tipCloseHover.On ? Fade(Menu.MenuText with { A = HoverMix }) : Transparent,
         CornerRadius = RoundRadius(24f), PaddingX = 0f, PaddingY = 0f,
     };
 }

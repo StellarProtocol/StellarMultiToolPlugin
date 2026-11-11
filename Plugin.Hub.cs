@@ -102,7 +102,8 @@ public sealed partial class Plugin
         }, Gap: 10f);
     }
 
-    // A raised tile (Bubble fill, sitting directly in the Column → full width) around a SelectableElement row, so the
+    // A raised card (CardColor, not the panel-based Tile: it sits directly on the window, where Tile blended in; faded
+    // with the window opacity). Bubble fill, sitting directly in the Column → full width, around a SelectableElement row, so the
     // selectable's default hover wash covers the whole card. Bubble OUTSIDE the selectable on purpose: a bubble wrapped
     // IN a selectable gets a full-width chip painted behind it (WindowBuilder-Patterns.md §BubbleElement).
     private HudElement HubCard(HubTool t) => new BubbleElement(new SelectableElement(
@@ -122,6 +123,6 @@ public sealed partial class Plugin
         }, Gap: 10f),
         OnClick: () => OpenHubTool(t)))
     {
-        FillColorFn = () => TileColor(), PaddingX = 0f, PaddingY = 0f,
+        FillColorFn = () => Fade(CardColor()), PaddingX = 0f, PaddingY = 0f,
     };
 }

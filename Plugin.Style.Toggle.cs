@@ -64,7 +64,7 @@ public sealed partial class Plugin
             Width: ChipWidth);
     }
 
-    private static HudElement ChipShell(HudElement label, Func<ColorRgba> fill, HoverFlag hover, Action onClick)
+    private HudElement ChipShell(HudElement label, Func<ColorRgba> fill, HoverFlag hover, Action onClick)
         => new BubbleElement(new SelectableElement(new RowElement(new HudElement[]
             {
                 new SpacerElement(0f, ToggleChipHeight),   // width 0 + height > 0 = a non-flexible height strut
@@ -72,7 +72,7 @@ public sealed partial class Plugin
             }, Gap: 0.01f, Justify: RowJustify.Center),
             OnClick: onClick) { Bare = true, OnHover = over => hover.On = over })
         {
-            FillColorFn = () => fill(), CornerRadius = RoundRadius(ToggleChipHeight), PaddingX = 0f, PaddingY = 0f,
+            FillColorFn = () => Fade(fill()), CornerRadius = RoundRadius(ToggleChipHeight), PaddingX = 0f, PaddingY = 0f,
             MaxWidth = ChipWidth,
         };
 
@@ -99,7 +99,7 @@ public sealed partial class Plugin
             }, Gap: 0.01f, Justify: RowJustify.Center),
             OnClick: onClick) { Bare = true, OnHover = over => hover.On = over })
         {
-            FillColorFn = () => Dimmed(FillRaw(), dim), CornerRadius = RoundRadius(ScopePillHeight),
+            FillColorFn = () => Fade(Dimmed(FillRaw(), dim)), CornerRadius = RoundRadius(ScopePillHeight),
             PaddingX = 0f, PaddingY = 0f,
         };
     }
