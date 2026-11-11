@@ -49,7 +49,7 @@ public sealed partial class Plugin
         AddHubTool("Mute Instruments",    BandMuteIconPng,   BandMuteStatus,   _bandMuteWindow);
         AddHubTool("Auto-Accept Invites", AutoAcceptIconPng, InviteStatus,     _inviteWindow);
         AddHubTool("Language Unlock",     LanguageIconPng,   LanguageStatus,   _languageWindow);
-        AddHubTool("Effect Filter",       EffectFilterIconPng, EffectFilterHubStatus, _effectWindow);
+        AddHubTool("Performance",         PerformanceIconPng, PerformanceHubStatus, _effectWindow);
     }
 
     private void AddHubTool(string title, Func<byte[]?> icon, Func<HudElement> status, IWindowControl window) =>

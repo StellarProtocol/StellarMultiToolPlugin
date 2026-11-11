@@ -66,7 +66,7 @@ public sealed partial class Plugin
 
         // The help popover first: the window's "?" fill funcs read _tipWindow.
         InitHelpTip();
-        _effectWindow = RegisterWindow("multitool.effectfilter", "Effect Filter", 4, BuildEffectFilterRoot(),
+        _effectWindow = RegisterWindow("multitool.effectfilter", "Performance", 4, BuildEffectFilterRoot(),
             EffWindowWidth);
         _tipOwner = _effectWindow;
     }
@@ -95,6 +95,7 @@ public sealed partial class Plugin
         _effEverywhere = everywhere;
         SaveEffBool("effect_filter_everywhere", everywhere);
         UpdateEffActive();
+        PartyThrGateNow();   // WHERE is shared: the party throttle installs / restores at once too
     }
 
     // Every setting change may switch the filter between "can hide" and "keeps everything", so each one re-arms.
@@ -259,32 +260,43 @@ public sealed partial class Plugin
         if (inCombat) EffectFilterPatch.HiddenThisFight = 0;
     }
 
-    // ── status text (hub card + window header) ───────────────────────────────────────────────────────────────────
-    private bool EffWaiting => EffAnyHide && !EffInScope;
+    // ── status text (hub card + window header; both features of the Performance window) ──────────────────────────
     private bool EffFiltering => EffAnyHide && EffInScope && !EffectFilterPatch.HardFailed;
+    // The party throttle is really installed right now (and the scope still allows it).
+    private bool PtShowsActive => _ptOn && _ptActive && EffInScope;
 
-    private string EffHubStatusText() =>
-        !EffAnyHide ? "Off" : _effEverywhere ? "On · everywhere" : "On · dungeons & raids";
+    // Hub card: which features are switched on (scope and live counts live in the window header). Constant strings.
+    private string PerfHubStatusText() =>
+        EffAnyHide ? (_ptOn ? "Effects on · party list reduced" : "Effects on")
+                   : (_ptOn ? "Party list reduced" : "Off");
 
-    private string EffWindowStatusText()
+    private string PerfWindowStatusText()
     {
-        if (!EffAnyHide) return "Off · all effects shown";
-        if (EffectFilterPatch.HardFailed) return "On · not available in this game version";
-        if (EffWaiting) return "On · waiting for a dungeon";
-        return EffHidText();
+        bool eff = EffAnyHide;
+        if (!eff && !_ptOn) return "Off · all effects shown";
+        if (!EffInScope) return "On · waiting for a dungeon";
+        int party = PtShowsActive ? _ptRate : 0;   // 0 = no party part in the line
+        if (eff && !EffectFilterPatch.HardFailed) return EffHidText(party);
+        if (party == 5)  return eff ? "On · effects unavailable · party list 5 / sec"  : "On · party list 5 / sec";
+        if (party == 10) return eff ? "On · effects unavailable · party list 10 / sec" : "On · party list 10 / sec";
+        if (eff) return "On · not available in this game version";   // effects failed, party off / not up
+        return _ptFailed ? "On · party list not available" : "On · party list starting";
     }
 
-    // Rebuilt only when the count changes (the status Func is polled every refresh while the window is shown).
-    private int _effStatusN = -1;
+    // Rebuilt only when the count or the party part changes (the status Func is polled every refresh while shown).
+    private int _effStatusN = -1, _effStatusParty = -1;
     private string _effStatusText = "";
 
-    private string EffHidText()
+    private string EffHidText(int party)
     {
         int n = EffectFilterPatch.HiddenThisFight;
-        if (n == _effStatusN) return _effStatusText;
+        if (n == _effStatusN && party == _effStatusParty) return _effStatusText;
         _effStatusN = n;
-        _effStatusText = "On · hid " + n.ToString("N0", CultureInfo.InvariantCulture)
-                       + (n == 1 ? " effect this fight" : " effects this fight");
+        _effStatusParty = party;
+        string count = "On · hid " + n.ToString("N0", CultureInfo.InvariantCulture);
+        _effStatusText = party == 0
+            ? count + (n == 1 ? " effect this fight" : " effects this fight")
+            : count + (n == 1 ? " effect · party list " : " effects · party list ") + (party == 5 ? "5 / sec" : "10 / sec");
         return _effStatusText;
     }
 }
