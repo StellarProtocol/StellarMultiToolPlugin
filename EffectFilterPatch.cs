@@ -18,6 +18,9 @@ namespace Stellar.MultiTool;
 /// after load).</item>
 /// <item>Rule — the CASTER decides, not the target; every switch means HIDE (user-approved 2026-11-11), first match
 /// wins (Rule):
+/// 0. raid/dungeon ground marks (the leader's "punctuate" marks, <c>Context.Addr</c> ∈ the 6 <c>p_fx_dungeonsmask0N</c>
+/// asset hashes) → ALWAYS kept, no switch: a teammate's mark has FromUuid = that player, so without this it would fall
+/// under "Other players' effects" (KB Marker-and-Raid-Coordination.md);
 /// a. telegraph (Type = Warning) or IsImportant → hidden iff "Telegraphs &amp; important markers";
 /// b. cast by me / my pet, summon or bullet (incl. what I cast on myself) → hidden iff "My own effects";
 /// c. cast by another player (<c>UuidToEntType(FromUuid) == Char</c>) or — top summoner (<c>AttrTopSummonerId=91</c>,
@@ -77,7 +80,8 @@ internal static class EffectFilterPatch
     private static Func<object, long>? _effUid;              // ZEffect.Uid
     private static Func<object, long>? _from, _belong, _type, _src;
     private static Func<object, bool>? _important;
-    private static Func<long, long>? _entType;                // ZEntity.UuidToEntType (static, pure uuid decode)
+    private static Func<object, long>? _addr;                 // EffectContext.Addr (uint asset hash) — optional
+    private static Func<long, long>? _entType;               // ZEntity.UuidToEntType (static, pure uuid decode)
     private static Func<object?>? _mgrInstance;               // ZEntityMgr.Instance
     private static Func<object, long, object?>? _getEntity;   // ZEntityMgr.GetEntity(long)
     private static Func<object, long>? _attrTop, _attrSum;    // GetAttr<long>(91 / 90, true)
@@ -86,6 +90,15 @@ internal static class EffectFilterPatch
     // ── Caches (scene-scoped) ────────────────────────────────────────────────────────────────────────────────────
     private static readonly Dictionary<long, bool> _decided = new();   // effect uid → hide
     private static readonly Dictionary<long, long> _ownerOf = new();   // pet/bullet uuid → top summoner (0 = none)
+
+    // ── Raid/dungeon ground marks (rule 0) ───────────────────────────────────────────────────────────────────────
+    // Global.lua FlagSkillEffectAddr (= ZIndicatorMgr.FlagSkillAddrPrefix + p_fx_dungeonsmask0N), slot N = index + 1.
+    // In game (2026-09-30) Addr was slot1 = 0x99B514CD, …D1 (5), …D2 (6) = 0x99B514CC + slot.
+    private const string MarkAddrPrefix = "effect/common_new/tips/p_fx_dungeonsmask0";
+    private const uint MarkSlot1Seen = 0x99B514CD;
+    private static readonly uint[] _marks = new uint[6];               // filled once at bind, never resized
+    private static uint _markLo, _markHi;                               // bounds → one range compare for non-marks
+    private static bool _markLogged;                                    // first kept mark logged (reset per scene)
 
     // ── Diagnostics (STELLAR_DIAGNOSTICS=1 only) ─────────────────────────────────────────────────────────────────
     private static bool _diag;
@@ -106,10 +119,11 @@ internal static class EffectFilterPatch
 
             var load = BindCore(effT, ctxT, entT);
             BindOwner(entT);
+            BindMarks(log);
             log($"[EffFilter] bind: load={load != null} ctx={_ctxOf != null} uid={_effUid != null} from={_from != null} " +
                 $"belong={_belong != null} type={_type != null} src={_src != null} imp={_important != null} " +
                 $"entType={_entType != null} mgr={_mgrInstance != null} getEnt={_getEntity != null} " +
-                $"attrTop={_attrTop != null} attrSum={_attrSum != null}");
+                $"attrTop={_attrTop != null} attrSum={_attrSum != null} addr={_addr != null}");
             if (load == null || _ctxOf == null || _from == null || _belong == null || _type == null || _src == null
                 || _important == null || _entType == null)
             { HardFailed = true; log("[EffFilter] essential accessor missing — not patching"); return false; }
@@ -141,6 +155,7 @@ internal static class EffectFilterPatch
         _type      = EffectFilterBind.NumProp(ctxT, "Type");
         _src       = EffectFilterBind.NumProp(ctxT, "Source");
         _important = EffectFilterBind.BoolProp(ctxT, "IsImportant");
+        _addr      = EffectFilterBind.NumProp(ctxT, "Addr");
 
         foreach (var m in entT.GetMethods(BindingFlags.Public | BindingFlags.Static))
             if (m.Name == "UuidToEntType" && m.GetParameters() is { Length: 1 } ps && ps[0].ParameterType == typeof(long))
@@ -176,6 +191,56 @@ internal static class EffectFilterPatch
         }
     }
 
+    // The 6 mark Addr values, once. Preferred source = the game's own hash (ZUtil.ZMisc.Hash33(string), the function
+    // that produced the in-game values) over the Global.lua asset paths — trusted only if slot 1 reproduces the value
+    // seen in game, so a different hash input (extension / case) can't silently yield a wrong set. Otherwise the
+    // literal in-game range. Invoke is fine here: bind time, 6 calls, never on the hot path.
+    private static void BindMarks(Action<string> log)
+    {
+        bool hashed = false;
+        try
+        {
+            MethodInfo? h = null;
+            var misc = StellarInterop.FindType("ZUtil.ZMisc");
+            if (misc != null)
+                foreach (var m in misc.GetMethods(BindingFlags.Public | BindingFlags.Static))
+                    if (m.Name == "Hash33" && m.ReturnType == typeof(uint)
+                        && m.GetParameters() is { Length: 1 } ps && ps[0].ParameterType == typeof(string)) { h = m; break; }
+            if (h != null)
+            {
+                var v = new uint[6];
+                for (int i = 0; i < 6; i++) v[i] = (uint)h.Invoke(null, new object[] { MarkAddrPrefix + (i + 1) })!;
+                if (v[0] == MarkSlot1Seen) { Array.Copy(v, _marks, 6); hashed = true; }
+                else log($"[EffectFilter] raid marks: Hash33 slot1=0x{v[0]:X8} != 0x{MarkSlot1Seen:X8} seen in game — not trusted");
+            }
+        }
+        catch (Exception ex) { log($"[EffectFilter] raid marks: Hash33 failed: {ex.InnerException?.Message ?? ex.Message}"); }
+        if (!hashed) for (int i = 0; i < 6; i++) _marks[i] = MarkSlot1Seen + (uint)i;
+        _markLo = uint.MaxValue; _markHi = 0;
+        foreach (var a in _marks) { if (a < _markLo) _markLo = a; if (a > _markHi) _markHi = a; }
+        log($"[EffectFilter] raid marks: {(hashed ? "hash33" : "literal")} 0x{_marks[0]:X8}-0x{_marks[5]:X8}" +
+            (_addr == null ? " (EffectContext.Addr unbound — marks NOT protected)" : ""));
+    }
+
+    // Range compare first (every non-mark effect stops there); the 6-entry scan only runs inside the bounds.
+    private static bool IsMark(uint a)
+    {
+        if (a < _markLo || a > _markHi) return false;
+        var m = _marks;
+        for (int i = 0; i < m.Length; i++) if (m[i] == a) return true;
+        return false;
+    }
+
+    // Diagnostic: the first kept mark per scene (one string, once) so it can be confirmed in game.
+    private static void LogMark(object ctx, uint addr)
+    {
+        _markLogged = true;
+        long from = _from!(ctx);
+        _log?.Invoke($"[EffectFilter] raid mark kept addr=0x{addr:X8} from={EntTypeOf(from)} " +
+                     $"belong={(LocalUuid != 0 && _belong!(ctx) == LocalUuid ? "me" : "other")} src={_src!(ctx)} " +
+                     $"important={_important!(ctx)}");
+    }
+
     /// <summary>1 Hz from the plugin: re-fetch the entity manager wrapper so owner lookups never fetch it per call.</summary>
     public static void RefreshManager()
     {
@@ -187,6 +252,7 @@ internal static class EffectFilterPatch
     {
         _decided.Clear();
         _ownerOf.Clear();
+        _markLogged = false;
     }
 
     /// <summary>Caster type of my own uuid (10 = Char expected) — logged once per new uuid to verify the uuid source.</summary>
@@ -234,10 +300,17 @@ internal static class EffectFilterPatch
         return hide;
     }
 
-    // First match wins (class summary a–d). Cheapest reads first: type/important, then the caster; source and target
-    // are read only for another player's effect that the master would hide.
+    // First match wins (class summary 0, a–d). Cheapest reads first: mark addr, type/important, then the caster; source
+    // and target are read only for another player's effect that the master would hide.
     private static bool Rule(object ctx)
     {
+        // 0. Ground marks are never hidden — before the Warning/Important check, so even "Telegraphs & important
+        // markers" can't hide them.
+        if (_addr != null)
+        {
+            uint a = (uint)_addr(ctx);
+            if (IsMark(a)) { if (!_markLogged) LogMark(ctx, a); return false; }
+        }
         if ((int)_type!(ctx) == TypeWarning || _important!(ctx)) return HideMarkers;
         long me = LocalUuid;
         switch (Relation(_from!(ctx), me))
