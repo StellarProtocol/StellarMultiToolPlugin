@@ -209,8 +209,8 @@ public sealed partial class Plugin
     private const float InviteTilePadX   = 6f;     // roster tile inner padding (header uses the same, so columns align)
 
     // A roster row's raised tile (TileColor, live from the theme), or — with a transparent fill — the header's matching padding.
-    private static HudElement RosterTile(HudElement row, Func<ColorRgba> fill) =>
-        new BubbleElement(row) { FillColorFn = () => fill(), PaddingX = InviteTilePadX, PaddingY = 0f };
+    private HudElement RosterTile(HudElement row, Func<ColorRgba> fill) =>
+        new BubbleElement(row) { FillColorFn = () => Fade(fill()), PaddingX = InviteTilePadX, PaddingY = 0f };
 
     // Table-header label: bold + muted so it reads as a header, not a data row. NoWrap keeps it on the row pitch.
     private TextElement InviteHeaderText(Func<string> text) => new TextElement(text,
@@ -294,7 +294,7 @@ public sealed partial class Plugin
             OnHover = over => { _invRemoveHover[slot] = over; _invRemoveHoverUid[slot] = uid(); },
         })
     {
-        FillColorFn = () => RemoveHovered(slot, uid) ? RemoveWash : Transparent,
+        FillColorFn = () => RemoveHovered(slot, uid) ? Fade(RemoveWash) : Transparent,   // wash on the faded tile
         CornerRadius = 4f, PaddingX = 2f, PaddingY = 2f,
     };
 

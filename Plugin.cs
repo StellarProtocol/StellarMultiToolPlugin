@@ -16,6 +16,9 @@ namespace Stellar.MultiTool;
 //   • Profile-card "Auto-Accept" button — opens a per-player dialog with that person's Party / Social switches.
 //   • Language Unlock — show every text language (and extra voice languages) this client ships in the game's own
 //     Settings > Language; applies from the next game start (moved from MahiruUtility, settings imported once).
+//   • Performance (was Effect Filter) — skip loading chosen skill effects (other players', mine, monsters, telegraphs — every switch
+//     means hide) for FPS in crowded fights (EffectFilterPatch.cs), and throttle the party list's HP/buff redraws
+//     (Plugin.PartyThrottle.cs).
 //
 // Adding a tool:
 //   1. Put it in its own partial `Plugin.<Feature>.cs` with an `Init<Feature>()` that registers its window via
@@ -45,6 +48,8 @@ public sealed partial class Plugin : IStellarPlugin
         InitBandMute();      // Band Mute: silence specific other players' band instruments (Plugin.BandMute.cs)
         InitInviteAccept();   // Auto-Accept Invites: party + interaction invite auto-accept (Plugin.InviteAccept.cs)
         InitProfileCardAdd(); // "Auto-Accept" on the native profile card → per-player dialog — needs the lists (Plugin.ProfileCardAdd.cs)
+        InitPartyThrottle();  // Performance → party list throttle; state only, its 1 Hz tick waits for the world (Plugin.PartyThrottle.cs)
+        InitEffectFilter();   // Performance window + effect filter: skip loading chosen skill effects (Plugin.EffectFilter.cs)
 
         // Load-time migrations above only STAGE (Set) and raise _cfgLoadDirty; persist them with ONE save here. Each
         // Init saving on its own meant back-to-back writes, and the framework's single-thread writer has no retry on
@@ -127,6 +132,8 @@ public sealed partial class Plugin : IStellarPlugin
         DisposeInviteAddDialog();
         DisposeInviteAccept();
         DisposeLanguageUnlock();
+        DisposePartyThrottle();
+        DisposeEffectFilter();
         foreach (var l in _launchers) l.Dispose();
         foreach (var w in _windows) w.Remove();
     }

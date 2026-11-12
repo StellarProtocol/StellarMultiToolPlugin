@@ -25,9 +25,17 @@ public sealed partial class Plugin
     // Only SEMANTIC colours stay fixed: status green, the danger red and the Party/Social/Join chip colours (like
     // channel colours). Fills are composited opaque against the menu background (Over), as ChatTools does.
     private static readonly ColorRgba PanelShade  = new(0f, 0f, 0f, 0.20f);   // panel = background darkened
-    private const float TileTextMix   = 0.10f;   // raised tile = panel + 10% MenuText (lighter on dark, darker on light)
-    private const float NeutralMix    = 0.22f;   // neutral pill = panel + 22% MenuMuted
-    private const float PillMinContrast = 4.5f;  // WCAG AA for the pill labels
+    // Token mixes match the house reference (Stellar-Design-Language, Maestro Plugin.Style.cs): every surface carries a
+    // light accent tint, so the window reads teal on teal / pink on pink instead of a neutral grey.
+    private const float TileTextMix      = 0.08f;   // raised tile = panel + 8% MenuText (lighter on dark, darker on light)
+    private const float TileAccentMix    = 0.06f;   // ... + a 6% accent tint
+    private const float NeutralMix       = 0.22f;   // neutral pill = panel + 22% MenuMuted
+    private const float NeutralAccentMix = 0.08f;   // ... + an 8% accent tint, like the tiles
+    private const float CardTextMix      = 0.06f;   // hub card = WINDOW background + 6% MenuText
+    private const float CardAccentMix    = 0.08f;   // ... + an 8% accent tint
+    private const float PillMinContrast  = 4.5f;    // WCAG AA for the pill labels
+    // White on the solid accent / red pills: 3:1 (bold label), as the reference. 4.5 pushed it toward black on bright accents.
+    private const float PrimaryMinContrast = 3.0f;
 
     private static readonly ColorRgba StatusOn    = Rgb(0x5fd38d);
     private static readonly ColorRgba ChipParty   = Rgb(0x66d9ff);
@@ -42,12 +50,38 @@ public sealed partial class Plugin
     private ColorRgba TextColor()    => Menu.MenuText;    // titles, body, neutral pill labels
     private ColorRgba MutedColor()   => Menu.MenuMuted;   // captions, hints, subtitles, chevron, "off" status
     private ColorRgba PanelColor()   => Over(PanelShade, Menu.MenuBackground);
-    private ColorRgba TileColor()    => Over(Menu.MenuText with { A = TileTextMix }, PanelColor());
-    private ColorRgba NeutralFill()  => Over(Menu.MenuMuted with { A = NeutralMix }, PanelColor());
+    private ColorRgba TileColor()    => Over(Menu.MenuAccent with { A = TileAccentMix },
+                                             Over(Menu.MenuText with { A = TileTextMix }, PanelColor()));
+    // Hub cards sit directly on the WINDOW background (not in a panel), where the panel-based Tile almost matched the
+    // window and blended in, so Card is built on MenuBackground instead (spec R6).
+    private ColorRgba CardColor()    => Over(Menu.MenuAccent with { A = CardAccentMix },
+                                             Over(Menu.MenuText with { A = CardTextMix }, Menu.MenuBackground));
+    private ColorRgba NeutralFill()  => Over(Menu.MenuAccent with { A = NeutralAccentMix },
+                                             Over(Menu.MenuMuted with { A = NeutralMix }, PanelColor()));
     private ColorRgba PrimaryFill()  => Menu.MenuAccent;
-    private ColorRgba PrimaryText()  => EnsureContrast(White, PrimaryFill(), PillMinContrast);
+    // Danger = the fixed 85%-alpha red composed OPAQUE over the panel, so the window fade below scales a solid colour
+    // instead of stacking two alphas.
+    private ColorRgba DangerSolid()  => Over(DangerFill, PanelColor());
+    private ColorRgba PrimaryText()  => EnsureContrast(White, PrimaryFill(), PrimaryMinContrast);
     private ColorRgba NeutralText()  => EnsureContrast(TextColor(), NeutralFill(), PillMinContrast);
-    private ColorRgba DangerText()   => EnsureContrast(White, Over(DangerFill, PanelColor()), PillMinContrast);
+    private ColorRgba DangerText()   => EnsureContrast(White, DangerSolid(), PrimaryMinContrast);
+
+    // ── window opacity: EVERY coloured fill fades with the window, uniformly ──────────────────────────────────────
+    // The framework's Themes → Window Opacity (IChromeStyle.WindowOpacity, 0.3–1) fades ONLY the GlassMenu frame Image;
+    // every fill we draw ourselves (Bubble.FillColorFn) stayed solid on a see-through frame. So every fill — panels,
+    // tiles, hub cards, Primary / Neutral / Danger / Caution pills, chips, choice pills, hover washes, list rows, the "?"
+    // icon tile — goes through Fade by the SAME factor as the frame (Stellar-Design-Language §5, user rule 2026-11-07).
+    // Text and pictures (ImageElement PNG art, the banner, avatars) stay solid. Base fills are composed OPAQUE first and
+    // only then take the factor; a translucent hover / remove wash drawn ON an already-faded fill takes it on its own alpha.
+    // IChromeStyle isn't on IPluginServices; the shared INamedTheme instance is the framework theme service, which
+    // implements it too (ChatTools / Dungeon Hub). Read live per refresh: a cast + a property read, no allocation.
+    private float WindowOpacity()
+    {
+        try { return Math.Clamp((_services.NamedTheme as IChromeStyle)?.WindowOpacity ?? 1f, 0.3f, 1f); }
+        catch { return 1f; }
+    }
+
+    private ColorRgba Fade(ColorRgba c) => c with { A = c.A * WindowOpacity() };   // Fade(Transparent) stays transparent
 
     // Nudges fg toward white (dark bg) or black (light bg) in 15% steps until it reaches minRatio against the opaque
     // bg (copied from ChatTools Plugin.Tabs.cs). Pure struct math — no allocation on the per-refresh colour funcs.
@@ -147,7 +181,7 @@ public sealed partial class Plugin
     private const float PillPadX        = 6f;    // strut width; + the Selectable's own 6 = 12 each side of a label
     private const float PillPairWidth   = 96f;   // label box for the two-in-a-row pairs (both halves prefer the same)
 
-    private static HudElement PillButton(Func<string> label, Func<ColorRgba> fill, Func<ColorRgba> text, Action onClick,
+    private HudElement PillButton(Func<string> label, Func<ColorRgba> fill, Func<ColorRgba> text, Action onClick,
         float width = 0f) => new BubbleElement(new SelectableElement(
             new RowElement(new HudElement[]
             {
@@ -158,7 +192,7 @@ public sealed partial class Plugin
             }, Gap: 0.01f, Justify: RowJustify.Center),
             OnClick: onClick))
         {
-            FillColorFn = () => fill(), PaddingX = 0f, PaddingY = 0f,
+            FillColorFn = () => Fade(fill()), PaddingX = 0f, PaddingY = 0f,
         };
 
     private HudElement PrimaryButton(Func<string> label, Action onClick, float width = 0f) =>
@@ -166,7 +200,7 @@ public sealed partial class Plugin
     private HudElement NeutralButton(Func<string> label, Action onClick, float width = 0f) =>
         PillButton(label, NeutralFill, NeutralText, onClick, width);
     private HudElement DangerButton(Func<string> label, Action onClick, float width = 0f) =>
-        PillButton(label, () => DangerFill, DangerText, onClick, width);
+        PillButton(label, DangerSolid, DangerText, onClick, width);
 
     // Two pills side by side at equal widths filling the row (see the width note above).
     private static HudElement PillPair(HudElement left, HudElement right) => new RowElement(new HudElement[]
@@ -193,7 +227,7 @@ public sealed partial class Plugin
         items.AddRange(children);
         return new BubbleElement(new ColumnElement(items, Gap: 6f))
         {
-            FillColorFn = () => PanelColor(), CornerRadius = 6f, PaddingX = 10f, PaddingY = 8f,
+            FillColorFn = () => Fade(PanelColor()), CornerRadius = 6f, PaddingX = 10f, PaddingY = 8f,
         };
     }
 
@@ -214,12 +248,12 @@ public sealed partial class Plugin
     // the on chip's measured height (the 56 px Auto-Accept hub card = 8 + title + 2 + 24), so the card height is unchanged.
     private const float ChipStrutHeight = 22f;
 
-    private static HudElement ChipPill(TextElement text, Func<ColorRgba> fill) => new CellElement(
+    private HudElement ChipPill(TextElement text, Func<ColorRgba> fill) => new CellElement(
         new BubbleElement(new RowElement(new HudElement[]
             {
                 new SpacerElement(0f, ChipStrutHeight),   // width 0 + height > 0 = a non-flexible height strut
                 text,
             }, Gap: 0.01f, Justify: RowJustify.Center))
-        { FillColorFn = () => fill(), PaddingX = 4f, PaddingY = 1f },
+        { FillColorFn = () => Fade(fill()), PaddingX = 4f, PaddingY = 1f },
         Width: ChipWidth);
 }

@@ -108,7 +108,7 @@ public sealed partial class Plugin
                 new TextElement(CardTitle, Emphasis: true),
                 new TextElement(CardSubtitle, Color: muted),
             }, Gap: 4f),
-        }, Gap: 10f)) { FillColorFn = () => TileColor(), PaddingX = 8f, PaddingY = 8f };
+        }, Gap: 10f)) { FillColorFn = () => Fade(TileColor()), PaddingX = 8f, PaddingY = 8f };
     }
 
     // Big line: the player name (or a looking-up / no-name placeholder). Seeds the name resolver opportunistically so

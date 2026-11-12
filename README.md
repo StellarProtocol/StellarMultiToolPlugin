@@ -5,6 +5,7 @@ A StellarResonance plugin with small quality-of-life tools, all in one hub windo
 - **Mute Instruments**: silence other players' instruments (Blacklist or Whitelist). Their animation and nameplate stay as they are.
 - **Auto-Accept Invites**: accept party and social invites from the players you list, and optionally every party join request. Players can be added by UID or with the **Auto-Accept** button on their name card.
 - **Language Unlock**: show every text and voice language this game client ships in the game's Settings › Language.
+- **Effect Filter**: hide the skill effects other players cast, in dungeons and raids or everywhere, for smoother busy fights. You can also choose to hide your own effects, boss and monster effects, or telegraphs; by default they all stay.
 
 ![The MultiTool hub](docs/hub.png)
 
