@@ -39,7 +39,9 @@ public sealed partial class Plugin
         _langInCtor = true;
         try { InitLanguageUnlockCore(); }
         finally { _langInCtor = false; }
-        _languageWindow = RegisterWindow("multitool.language", "MultiTool: Language Unlock", 6, BuildLanguageRoot());
+        InitInstantDialog();   // shares this window ("NPC dialog" section), not the unlocks' on/off (Plugin.InstantDialog.cs)
+        // Id kept from the "Language Unlock" days (saved window rect / layout); only the display title changed.
+        _languageWindow = RegisterWindow("multitool.language", "MultiTool: Language & Text", 6, BuildLanguageRoot());
     }
 
     private void InitLanguageUnlockCore()
