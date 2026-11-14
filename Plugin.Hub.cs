@@ -48,7 +48,7 @@ public sealed partial class Plugin
     {
         AddHubTool("Mute Instruments",    BandMuteIconPng,   BandMuteStatus,   _bandMuteWindow);
         AddHubTool("Auto-Accept Invites", AutoAcceptIconPng, InviteStatus,     _inviteWindow);
-        AddHubTool("Language Unlock",     LanguageIconPng,   LanguageStatus,   _languageWindow);
+        AddHubTool("Language & Text",     LanguageIconPng,   LanguageStatus,   _languageWindow);
         AddHubTool("Performance",         PerformanceIconPng, PerformanceHubStatus, _effectWindow);
     }
 
