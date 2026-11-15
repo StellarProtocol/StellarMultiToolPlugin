@@ -181,22 +181,57 @@ public sealed partial class Plugin
     private const float PillPadX        = 6f;    // strut width; + the Selectable's own 6 = 12 each side of a label
     private const float PillPairWidth   = 96f;   // label box for the two-in-a-row pairs (both halves prefer the same)
 
+    //
+    // `enabled` (optional, polled): false = rule 22 RECESSED (Stellar-Design-Language.md). SDK 2.28's SelectableElement has
+    // no live interactable flag (Bare is init-only and changes the padding), so a disabled pill is a ConditionalElement
+    // swapping the WHOLE pill for a selectable-less twin: no click target at all and no hover wash. The twin's bubble
+    // padding stands in for the selectable's own 6 / 4, so both variants measure the same (no jump on enable/disable).
+    private const float SelectablePadX = 6f, SelectablePadY = 4f;
+
     private HudElement PillButton(Func<string> label, Func<ColorRgba> fill, Func<ColorRgba> text, Action onClick,
-        float width = 0f) => new BubbleElement(new SelectableElement(
-            new RowElement(new HudElement[]
-            {
-                new SpacerElement(PillPadX, PillStrutHeight),
-                new TextElement(label, Color: () => text(), Width: width, Align: TextAlign.Center, NoWrap: true,
-                    FontSize: 13) { Bold = true },
-                new SpacerElement(PillPadX, PillStrutHeight),
-            }, Gap: 0.01f, Justify: RowJustify.Center),
-            OnClick: onClick))
+        float width = 0f, Func<bool>? enabled = null)
+    {
+        HudElement pill = new BubbleElement(new SelectableElement(PillLabelRow(label, text, width), OnClick: onClick))
         {
             FillColorFn = () => Fade(fill()), PaddingX = 0f, PaddingY = 0f,
         };
+        if (enabled == null) return pill;
+        // Every pill sits in a SectionPanel, so the panel is the surface the recess is cut into.
+        var recessed = new BubbleElement(PillLabelRow(label, () => DisabledLabel(PanelColor()), width))
+        {
+            FillColorFn = () => Fade(DisabledFill(PanelColor())), PaddingX = SelectablePadX, PaddingY = SelectablePadY,
+        };
+        return new ConditionalElement(enabled, pill, recessed);
+    }
 
-    private HudElement PrimaryButton(Func<string> label, Action onClick, float width = 0f) =>
-        PillButton(label, PrimaryFill, PrimaryText, onClick, width);
+    private static HudElement PillLabelRow(Func<string> label, Func<ColorRgba> text, float width) => new RowElement(
+        new HudElement[]
+        {
+            new SpacerElement(PillPadX, PillStrutHeight),
+            new TextElement(label, Color: () => text(), Width: width, Align: TextAlign.Center, NoWrap: true,
+                FontSize: 13) { Bold = true },
+            new SpacerElement(PillPadX, PillStrutHeight),
+        }, Gap: 0.01f, Justify: RowJustify.Center);
+
+    // ── rule 22: pressable ≠ disabled ─────────────────────────────────────────────────────────────────────────────
+    // Disabled = RECESSED: black @28 % over the surface it sits on (darker than the surface, where a pressable fill is
+    // lighter), same size and radius, no outline ring, faint label (Text @32 %, raised in 0.04 steps until 2:1). Port of
+    // the framework kit's DisabledFill / DisabledLabel (via StellarTargetLensPlugin / StellarPositionPlugin). Struct maths
+    // only — no allocation; the label loop only runs while the pill is recessed.
+    private static readonly ColorRgba DisabledShade = new(0f, 0f, 0f, 0.28f);
+
+    private static ColorRgba DisabledFill(ColorRgba surface) => Over(DisabledShade, surface);
+
+    private ColorRgba DisabledLabel(ColorRgba surface)
+    {
+        var bg = DisabledFill(surface);
+        float lb = Luminance(bg), a = 0.32f;
+        while (a < 1f && ContrastRatio(Luminance(Over(TextColor() with { A = a }, bg)), lb) < 2f) a = MathF.Min(1f, a + 0.04f);
+        return TextColor() with { A = a };
+    }
+
+    private HudElement PrimaryButton(Func<string> label, Action onClick, float width = 0f, Func<bool>? enabled = null) =>
+        PillButton(label, PrimaryFill, PrimaryText, onClick, width, enabled);
     private HudElement NeutralButton(Func<string> label, Action onClick, float width = 0f) =>
         PillButton(label, NeutralFill, NeutralText, onClick, width);
     private HudElement DangerButton(Func<string> label, Action onClick, float width = 0f) =>

@@ -9,8 +9,10 @@ namespace Stellar.MultiTool;
 // ToolHeader (moon icon, title, live On/Off), one SCREENSAVER panel (muted description, muted hotkey line, full-width
 // Primary "Enter power saving"), then a full-width Neutral "Close".
 //
-// "Enter power saving" = the hotkey's EnterPowerSave(), after hiding every MultiTool window and closing the game's
-// Esc menu. The Esc menu is the `mainui_funcs_list` view (ui_config.lua: PrefabPath main/main_funcs_list_window; the Esc
+// "Enter power saving" = the hotkey's EnterPowerSave(), after closing the game's Esc menu. MultiTool windows stay open
+// (user request 2026-11-16); instead the pill is RECESSED + inert while power saving is active and comes back live when
+// it ends by any path (Exit button, hotkey, logout), since it polls _powerSaveActive.
+// The Esc menu is the `mainui_funcs_list` view (ui_config.lua: PrefabPath main/main_funcs_list_window; the Esc
 // key / bottom-bar btn_esc → GotoMainUIFunc(MainFuncMenu) opens it, and the game closes it with
 // Z.UIMgr:CloseView('mainui_funcs_list') — mainui_funcs_list_vm.lua CloseView, main_line_window_view.lua:33).
 public sealed partial class Plugin
@@ -34,7 +36,7 @@ end)";
                                   "Leave with the Exit button or your hotkey.",
                 Color: () => MutedColor()),
             new TextElement(PowerSaveHotkeyLine, Color: () => MutedColor()),
-            PrimaryButton(() => "Enter power saving", OnPowerSaveEnterClick)),
+            PrimaryButton(() => "Enter power saving", OnPowerSaveEnterClick, enabled: () => !_powerSaveActive)),
         NeutralButton(() => "Close", () => _powerSaveWindow.SetVisible(false)),
     }, Gap: 8f);
 
@@ -69,14 +71,14 @@ end)";
     }
 
     // World only (Z.UIMgr / the Lua VMs aren't wired elsewhere; the window only renders in World anyway). Posted to the
-    // next tick so the windows aren't hidden from inside their own click; re-checked there.
+    // next tick so the Lua + power-save entry don't run from inside the pill's own click; re-checked there. The
+    // _powerSaveActive guard also covers a click racing the recessed swap (the pill is inert while active).
     private void OnPowerSaveEnterClick()
     {
         if (_powerSaveActive || _services.ClientState.Phase != GamePhase.World) return;
         _services.Framework.Post(() =>
         {
             if (_powerSaveActive || _services.ClientState.Phase != GamePhase.World) return;
-            HideAllWindows();   // the hub, this window and any other open MultiTool window (Plugin.cs)
             try { if (_services.Lua.Ready) _services.Lua.DoString(CloseEscMenuChunk); }
             catch (Exception ex) { _services.Log.Warning($"[MultiTool] PowerSave: close Esc menu failed: {ex.Message}"); }
             _services.Log.Info("[MultiTool] PowerSave: Enter button → enter");
