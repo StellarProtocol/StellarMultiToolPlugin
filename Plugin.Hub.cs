@@ -50,6 +50,7 @@ public sealed partial class Plugin
         AddHubTool("Auto-Accept Invites", AutoAcceptIconPng, InviteStatus,     _inviteWindow);
         AddHubTool("Language & Text",     LanguageIconPng,   LanguageStatus,   _languageWindow);
         AddHubTool("Performance",         PerformanceIconPng, PerformanceHubStatus, _effectWindow);
+        AddHubTool("Power Saving",        PowerSaveIconPng,  PowerSaveStatus,  _powerSaveWindow);
     }
 
     private void AddHubTool(string title, Func<byte[]?> icon, Func<HudElement> status, IWindowControl window) =>
