@@ -6,6 +6,7 @@ A StellarResonance plugin with small quality-of-life tools, all in one hub windo
 - **Auto-Accept Invites**: accept party and social invites from the players you list, and optionally every party join request. Players can be added by UID or with the **Auto-Accept** button on their name card.
 - **Language & Text**: show every text and voice language this game client ships in the game's Settings › Language, and optionally turn off the letter-by-letter animation so NPC conversation text appears instantly.
 - **Effect Filter**: hide the skill effects other players cast, in dungeons and raids or everywhere, for smoother busy fights. You can also choose to hide your own effects, boss and monster effects, or telegraphs; by default they all stay.
+- **Power Saving**: turn on the game's screensaver while you're away. It lowers the frame rate and covers the screen until you press its Exit button or your hotkey (End by default, changeable in Settings › Hotkeys).
 
 ![The MultiTool hub](docs/hub.png)
 

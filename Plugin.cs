@@ -19,6 +19,8 @@ namespace Stellar.MultiTool;
 //   • Performance (was Effect Filter) — skip loading chosen skill effects (other players', mine, monsters, telegraphs — every switch
 //     means hide) for FPS in crowded fights (EffectFilterPatch.cs), and throttle the party list's HP/buff redraws
 //     (Plugin.PartyThrottle.cs).
+//   • Power Saving — the game's mobile AFK screensaver on PC: hotkey (default End) or the window's "Enter power saving"
+//     pill; a native Exit button leaves it (Plugin.PowerSave.cs, moved from MahiruUtility 2026-11-15).
 //
 // Adding a tool:
 //   1. Put it in its own partial `Plugin.<Feature>.cs` with an `Init<Feature>()` that registers its window via
@@ -50,6 +52,7 @@ public sealed partial class Plugin : IStellarPlugin
         InitProfileCardAdd(); // "Auto-Accept" on the native profile card → per-player dialog — needs the lists (Plugin.ProfileCardAdd.cs)
         InitPartyThrottle();  // Performance → party list throttle; state only, its 1 Hz tick waits for the world (Plugin.PartyThrottle.cs)
         InitEffectFilter();   // Performance window + effect filter: skip loading chosen skill effects (Plugin.EffectFilter.cs)
+        InitPowerSave();      // Power Saving: screensaver hotkey + window (Plugin.PowerSave.cs)
 
         // Load-time migrations above only STAGE (Set) and raise _cfgLoadDirty; persist them with ONE save here. Each
         // Init saving on its own meant back-to-back writes, and the framework's single-thread writer has no retry on
@@ -78,7 +81,10 @@ public sealed partial class Plugin : IStellarPlugin
     // the login view appears, so ShouldRender alone keeps them up meanwhile) and none pops back open at the next login
     // (Visible would otherwise survive). SYNCHRONOUS on purpose: Update is world-gated, so an IFramework.Post from here
     // would only run at the next login (Game-Phases-and-Tick-Gating.md §4). Raised once on the main thread.
-    private void OnLogoutHideWindows()
+    private void OnLogoutHideWindows() => HideAllWindows();
+
+    // Hide every MultiTool window and stop any centre-settle. Also used by Power Saving's "Enter power saving".
+    private void HideAllWindows()
     {
         foreach (var w in _windows)
             try { w.SetVisible(false); } catch { }
@@ -134,6 +140,7 @@ public sealed partial class Plugin : IStellarPlugin
         DisposeLanguageUnlock();
         DisposePartyThrottle();
         DisposeEffectFilter();
+        DisposePowerSave();   // exits an active session first: never leave the player throttled / logo-covered
         foreach (var l in _launchers) l.Dispose();
         foreach (var w in _windows) w.Remove();
     }
