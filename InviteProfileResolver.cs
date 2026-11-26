@@ -126,6 +126,18 @@ internal sealed class InviteProfileResolver
         _inFlight[uid] = _clock;
     }
 
+    // Pre-seed a profile we already hold (the Add dialog's NAME search reply carries name, level and the avatar url), so
+    // its result row can show the avatar with no social RPC: the url goes through the same off-thread download +
+    // main-thread decode as a looked-up profile. Never overwrites a cached or in-flight uid (a real look-up wins).
+    public void Seed(string uid, string name, int level, string url)
+    {
+        EnsureDefaultAvatar();   // the row falls back to the shared default face
+        if (string.IsNullOrEmpty(uid) || !AllDigits(uid) || _cache.ContainsKey(uid) || _inFlight.ContainsKey(uid)) return;
+        var p = new Profile { Name = name ?? "", Level = level, Url = url ?? "", Resolved = true };
+        _cache[uid] = p;
+        if (p.Url.Length > 0) StartAvatarDownload(uid, p.Url, p);
+    }
+
     private void OnUpdate(float dt)
     {
         _clock += dt;

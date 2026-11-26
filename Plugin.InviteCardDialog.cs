@@ -6,12 +6,12 @@ namespace Stellar.MultiTool;
 
 // Per-player "Auto-Accept" dialog, opened from the profile card's single "Auto-Accept" button
 // (Plugin.ProfileCardAdd.cs) and from the Add-player dialog (Plugin.InviteAddDialog.cs). Shows the player's Party /
-// Social switches — the same per-person switches as the main window's Players rows, edited through the same
+// Social / Leader switches — the same per-person switches as the main window's Players rows, edited through the same
 // SetInviteSwitch path (Plugin.InviteRoster.cs), so the two views can't disagree. Every flip saves immediately.
 // Ticking a switch moves the person into that system list; unticking the last keeps them listed (roster-only).
 // There is deliberately no remove here — deleting someone is only the main window's ✕ / "Clear all".
 //
-// Both callers list the person (EnsureInviteListed, roster-only if new) BEFORE opening, so the dialog always edits a
+// Both callers list the person (EnsureInviteListed: every switch off if new) BEFORE opening, so the dialog always edits a
 // listed person and never adds or removes anyone itself. Re-opening for another player just retargets _invCardUid —
 // every element reads it live, so an already-open dialog switches person in place.
 //
@@ -62,7 +62,7 @@ public sealed partial class Plugin
         return string.IsNullOrEmpty(n) ? _invCardUid : n!;
     }
 
-    // Layout per the approved mockup (multitool-dialogs.html): header, one panel with the two switches, Close.
+    // Layout per the approved mockup (multitool-dialogs.html): header, one panel with the switches (Party, Social, Leader), Close.
     private HudElement BuildInviteCardRoot()
     {
         return new ColumnElement(new HudElement[]
@@ -73,15 +73,23 @@ public sealed partial class Plugin
                 new RowElement(new HudElement[]
                 {
                     new ToggleElement(Label: () => "", Get: () => InParty(_invCardUid),
-                        Set: on => SetInviteSwitch(_invCardUid, social: false, on)),
-                    new TextElement(() => "Party invites"),
+                        Set: on => SetInviteSwitch(_invCardUid, InviteCol.Party, on)),
+                    new TextElement(() => "Party invites and join requests"),
                 }, Gap: 6f),
 
                 new RowElement(new HudElement[]
                 {
                     new ToggleElement(Label: () => "", Get: () => InSocial(_invCardUid),
-                        Set: on => SetInviteSwitch(_invCardUid, social: true, on)),
+                        Set: on => SetInviteSwitch(_invCardUid, InviteCol.Social, on)),
                     new TextElement(() => "Social invites (co-op emote + ride together)"),
+                }, Gap: 6f),
+
+                // Leader = the per-player flag the roster table's Leader column edits (same SetInviteSwitch path).
+                new RowElement(new HudElement[]
+                {
+                    new ToggleElement(Label: () => "", Get: () => InLeader(_invCardUid),
+                        Set: on => SetInviteSwitch(_invCardUid, InviteCol.Leader, on)),
+                    new TextElement(() => "Party leader requests"),
                 }, Gap: 6f)),
 
             NeutralButton(() => "Close", CloseInviteCardDialog),

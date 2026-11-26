@@ -11,11 +11,10 @@ namespace Stellar.MultiTool;
 // through the generic IProfileCardActions service (same mechanism as EntityInspector's "Inspect"): the framework
 // injects + styles the button and calls OnClick on the main thread with the carded player's EntityId.
 //
-// The button is shown regardless of the auto-accept toggles — curating the roster while a section is off is
-// legitimate (a switch on a disabled section is stored but inert until enabled). Pressing it always lists the player
-// (EnsureInviteListed: roster-only, both switches off, if not already listed — an already-listed person is left as is)
-// but never turns a rule on by itself; only flipping a switch in the dialog does, and that dialog IS the feedback (no
-// toasts on this path).
+// The button is shown regardless of the auto-accept modes — curating the roster while a system is Off is legitimate
+// (a switch is stored but inert until its system is Listed). Pressing it always lists the player (EnsureInviteListed:
+// a new player starts with every switch off; an already-listed person is left as is); the dialog that
+// opens IS the feedback (no toasts on this path).
 public sealed partial class Plugin
 {
     private readonly List<IDisposable> _cardActions = new();
