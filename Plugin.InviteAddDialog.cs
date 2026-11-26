@@ -6,7 +6,7 @@ using Stellar.Abstractions.Services;
 namespace Stellar.MultiTool;
 
 // "Add player…" dialog for the single Players roster (Plugin.InviteRoster.cs). Picking a player lists them at once —
-// EnsureInviteListed, Party on (Social + Leader off) if new, same as the profile card's "Auto-Accept" button — then
+// EnsureInviteListed, every switch off if new, same as the profile card's "Auto-Accept" button — then
 // opens the per-player dialog (OpenInviteCardDialog, which centres it) to tick Party / Social. They stay listed until
 // removed from the main window. This window stays open behind.
 //
@@ -66,7 +66,7 @@ public sealed partial class Plugin
         var s = (_invAddDraft ?? "").Trim();
         if (!AllDigits(s)) return;
         if (s != _invAddLookedUp) return;         // must press Look up first
-        EnsureInviteListed(s);                    // listed now (Party on if new); the switches there pick the rules
+        EnsureInviteListed(s);                    // listed now (all off if new); the switches there pick the rules
         OpenInviteCardDialog(s, WindowCenterer.CentreOf(_invAddWindow));   // centred on THIS window (centring rule)
     }
 

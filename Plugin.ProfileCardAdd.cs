@@ -13,7 +13,7 @@ namespace Stellar.MultiTool;
 //
 // The button is shown regardless of the auto-accept modes — curating the roster while a system is Off is legitimate
 // (a switch is stored but inert until its system is Listed). Pressing it always lists the player (EnsureInviteListed:
-// a new player starts with Party on, Social + Leader off; an already-listed person is left as is); the dialog that
+// a new player starts with every switch off; an already-listed person is left as is); the dialog that
 // opens IS the feedback (no toasts on this path).
 public sealed partial class Plugin
 {

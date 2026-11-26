@@ -11,7 +11,7 @@ namespace Stellar.MultiTool;
 // Ticking a switch moves the person into that system list; unticking the last keeps them listed (roster-only).
 // There is deliberately no remove here — deleting someone is only the main window's ✕ / "Clear all".
 //
-// Both callers list the person (EnsureInviteListed: Party on if new) BEFORE opening, so the dialog always edits a
+// Both callers list the person (EnsureInviteListed: every switch off if new) BEFORE opening, so the dialog always edits a
 // listed person and never adds or removes anyone itself. Re-opening for another player just retargets _invCardUid —
 // every element reads it live, so an already-open dialog switches person in place.
 //

@@ -14,7 +14,7 @@ namespace Stellar.MultiTool;
 //     tried and rejected as bad UX (a row vanishing under the cursor); only the main window's explicit ✕ / "Clear
 //     all" delete anyone.
 //   • Picking a person (card "Auto-Accept" button, Add-player Choose) lists them straight away via EnsureInviteListed —
-//     a NEW person starts with Party on (Social + Leader off); an already listed one is untouched — before the dialog
+//     a NEW person is roster-only (every switch off); an already listed one is untouched — before the dialog
 //     opens.
 //
 // DISPLAY ORDER is stored separately in _invOrder (config invite_player_order): every listed uid exactly once, in the
@@ -148,15 +148,17 @@ public sealed partial class Plugin
         CommitInviteConfig();
     }
 
-    // Make sure a picked person is on the Players list. A NEW uid starts with Party on (Social + Leader off), is
-    // appended to the display order, and the Party set is staged + pushed — one Save. Already listed (any list) → no
-    // change, no save. Shared by the card button and the Add-player dialog.
+    // Make sure a picked person is on the Players list: a new uid goes in roster-only (EVERY switch off — invariant
+    // holds; the user ticks what to accept in the dialog that opens next) and is appended to the display order; only
+    // those two keys are staged (one Save). No system uid-set changes, so nothing is pushed to Lua. Already listed
+    // (any list) → no change, no save. Shared by the card button and the Add-player dialog. (1.3.0 briefly started a
+    // new person with Party on; reverted — the user wants nothing auto-accepted until they opt in.)
     private void EnsureInviteListed(string uid)
     {
         if (string.IsNullOrEmpty(uid) || IsListed(uid)) return;
-        _invPartyUids.Add(uid);
+        _invRosterUids.Add(uid);
         StageOrderAppend(uid);
-        StagePartyInvite();
+        _cfg.Set("invite_roster_uids", _invRosterUids);
         CommitInviteConfig();   // save + re-view (new row) + adds the uid to the wanted-names set
     }
 
