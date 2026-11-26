@@ -35,14 +35,43 @@ rawset(_G, '__stellar_inv_ok', function(mode, uids, uid)
   return mode == 1 and type(uids) == 'table' and uids[uid] == true
 end)
 
--- Close an invitation tip by its unitName (tostring(tipsType)..'_'..unitId): the full-teardown event the game's own
--- close uses (InvitationClearTipsUnit), NOT Remove (which leaves dedup state and would block future legit tips).
+-- Close an invitation tip by its unitName (tostring(tipsType)..'_'..unitId). The dispatch alone is a no-op while the
+-- tip is still loading: team_tips_view.refreshTipsInfo sets itemInfo_[key] at once but loads the unit in a coro and
+-- only creates timeDict[key] at the END (tipsDuration), and clearTipsUnit does nothing without timeDict[key]. So after
+-- the dispatch, poll the view every 0.2 s (max 30 ticks = 6 s) on ONE reused TimerMgr: timeDict[key] there →
+-- clearTipsUnit once and stop; view gone / tip never queued or already gone (itemInfo_[key] nil) → stop. At most one
+-- timer per key. Finishing = set loop to 1 so Timer.Update ends it with a single Stop() (calling StopTimer from inside
+-- the tick would Stop twice); finishFunc then drops the key and removes the timer from the manager's list.
 rawset(_G, '__stellar_mt_closeTip', function(key)
   Z.EventMgr:Dispatch(Z.ConstValue.InvitationClearTipsUnit, key)
+  local S = rawget(_G, '__stellar_mt_tipS')
+  if S == nil then
+    S = { tm = Z.TimerMgr.new(), run = {} }
+    rawset(_G, '__stellar_mt_tipS', S)
+  end
+  if S.run[key] ~= nil then return end
+  local t
+  t = S.tm:StartTimer(function()
+    local done = true
+    pcall(function()
+      local v = Z.UIMgr:GetView('team_tips')
+      if v == nil or v.itemInfo_ == nil or v.itemInfo_[key] == nil then return end
+      if v.timeDict ~= nil and v.timeDict[key] ~= nil then
+        v:clearTipsUnit(key)
+        return
+      end
+      done = false   -- still loading: try again next tick
+    end)
+    if done and t ~= nil then t.loop = 1 end
+  end, 0.2, 30, nil, function()
+    if S.run[key] == t then S.run[key] = nil end
+    pcall(table.zremoveByValue, S.tm.timers, t)
+  end)
+  S.run[key] = t
 end)
 
 -- (4) approve one party-join application. applyId is a STRING reply key (pass as-is). Only a Team-MERGE application
--- shows a tip (tipsType 2 = TeamRequest, unitId = applyId); for a Personal apply the close is a no-op.
+-- shows a tip (tipsType 2 = TeamRequest, unitId = applyId); for a Personal apply the close finds no tip and stops.
 -- AsyncDealApplyJoin itself does the RemoveApplyList + red-point clear (after its RPC returns, team_vm.lua:665).
 rawset(_G, '__stellar_inv_approveJoin', function(id)
   Z.CoroUtil.create_coro_xpcall(function()

@@ -54,6 +54,10 @@ namespace Stellar.MultiTool;
 /// Each decision runs in its own pcall so a payload shape change can never throw inside the game's notify path — a
 /// throw just falls through = normal prompt.
 ///
+/// ⚠️ Tip close: a plain <c>InvitationClearTipsUnit</c> dispatch right after the original is a NO-OP — the tip view
+/// loads its unit in a coroutine and only creates <c>timeDict[key]</c> at the end, and <c>clearTipsUnit</c> needs it.
+/// So every accept branch closes the tip through <c>__stellar_mt_closeTip(key)</c> (dispatch + short retry).
+///
 /// State lives in Lua globals, pushed from C# whenever config changes (and re-pushed each re-assert). Writes go through
 /// <c>rawset(_G, …)</c> because the game protects <c>_G</c> with a strict <c>__newindex</c> that silently drops plain
 /// <c>_G.x = v</c> writes (Lua-Injection-from-CSharp.md §strict-global guard); reads are unguarded.
