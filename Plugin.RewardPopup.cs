@@ -19,7 +19,8 @@ namespace Stellar.MultiTool;
 //
 // Gating: a 0.5 s Framework.Every tick exists ONLY while the setting is on (off → no tick, no Lua at all); each tick
 // returns at once unless world-ready (EffWorldReady: Phase == World && IsWorldActive && !Loading) and Lua is ready.
-// Config: "reward_popup_autoclose" (bool, default RpDefaultOn). No UI yet — a future toggle calls SetAutoCloseRewardPopup.
+// Config: "reward_popup_autoclose" (bool, default RpDefaultOn). UI: the "Daily Rewards" hub card + window
+// (Plugin.RewardPopupWindow.cs), whose toggle calls SetAutoCloseRewardPopup.
 public sealed partial class Plugin
 {
     // ⚠️ The default is undecided — keep it this single constant so flipping it is a one-line change.
@@ -77,12 +78,13 @@ public sealed partial class Plugin
     private void InitRewardPopup()
     {
         _rpOn = _cfg.Get<bool>(RpOnKey, RpDefaultOn);
+        _rewardPopupWindow = RegisterWindow("multitool.dailyrewards", "MultiTool: Daily Rewards", 8, BuildRewardPopupRoot());
         if (_rpOn) StartRpTick();   // at construction → never in world yet → the first world tick defines + polls
     }
 
     private void DisposeRewardPopup() => StopRpTick();
 
-    // For the future UI toggle. One save per click (MultiTool-Plugin.md §4.1).
+    // The window's toggle (Plugin.RewardPopupWindow.cs). One save per click (MultiTool-Plugin.md §4.1).
     internal void SetAutoCloseRewardPopup(bool on)
     {
         if (_rpOn == on) return;

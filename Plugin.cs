@@ -55,7 +55,7 @@ public sealed partial class Plugin : IStellarPlugin
         InitPartyThrottle();  // Performance → party list throttle; state only, its 1 Hz tick waits for the world (Plugin.PartyThrottle.cs)
         InitEffectFilter();   // Performance window + effect filter: skip loading chosen skill effects (Plugin.EffectFilter.cs)
         InitPowerSave();      // Power Saving: screensaver hotkey + window (Plugin.PowerSave.cs)
-        InitRewardPopup();    // Auto-close the daily monthly-card popup (+ seen-ack); logic only, no UI yet (Plugin.RewardPopup.cs)
+        InitRewardPopup();    // Auto-close the daily monthly-card popup (+ seen-ack); + Daily Rewards window (Plugin.RewardPopup.cs)
 
         // Load-time migrations above only STAGE (Set) and raise _cfgLoadDirty; persist them with ONE save here. Each
         // Init saving on its own meant back-to-back writes, and the framework's single-thread writer has no retry on

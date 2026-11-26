@@ -29,6 +29,7 @@
     <EmbeddedResource Include="Resources/icon-language.png" LogicalName="Stellar.MultiTool.icon-language.png" />
     <EmbeddedResource Include="Resources/icon-performance.png" LogicalName="Stellar.MultiTool.icon-performance.png" />
     <EmbeddedResource Include="Resources/icon-powersave.png" LogicalName="Stellar.MultiTool.icon-powersave.png" />
+    <EmbeddedResource Include="Resources/icon-dailyrewards.png" LogicalName="Stellar.MultiTool.icon-dailyrewards.png" />
   </ItemGroup>
 
   <ItemGroup>
