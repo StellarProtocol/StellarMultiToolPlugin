@@ -165,8 +165,8 @@ public sealed partial class Plugin
         BuildPlayersSection(),
     }, Gap: 8f);
 
-    // Live status, shared by the hub card and this window's header (one builder → they can't drift): one chip per
-    // system ("Party · Listed"; grey when Off, lit in its colour otherwise), then the roster size — or "all off".
+    // Live status for this window's header: one chip per system ("Party · Listed"; grey when Off, lit in its colour
+    // otherwise), then the roster size — or "all off".
     private HudElement InviteStatus() => new RowElement(new HudElement[]
     {
         ModeChip("Party",  ChipParty,  () => _invPartyMode),
@@ -175,8 +175,20 @@ public sealed partial class Plugin
         new TextElement(InviteStatusTail, Color: () => MutedColor(), NoWrap: true),
     }, Gap: 4f);
 
-    private int _invTailN = -1;       // cached tail text: polled per frame by two windows, rebuilt only when N changes
+    // The hub card's compact twin: "Party · List|All|Off" chips and a bare "· 16" count. The full labels ran under the
+    // card's › arrow and past its edge (worse with three "Everyone"); same chips/colours, shorter words only.
+    private HudElement InviteStatusCompact() => new RowElement(new HudElement[]
+    {
+        ModeChip("Party",  ChipParty,  () => _invPartyMode,  compact: true),
+        ModeChip("Social", ChipSocial, () => _invIntMode,    compact: true),
+        ModeChip("Leader", ChipJoin,   () => _invLeaderMode, compact: true),
+        new TextElement(InviteStatusTailCompact, Color: () => MutedColor(), NoWrap: true),
+    }, Gap: 4f);
+
+    private int _invTailN = -1;       // cached tail text: polled per frame, rebuilt only when N changes
     private string _invTailText = "";
+    private int _invTailCompactN = -1;   // the hub card's own cache (separate, so the two tails don't thrash one slot)
+    private string _invTailCompactText = "";
 
     private string InviteStatusTail()
     {
@@ -187,7 +199,17 @@ public sealed partial class Plugin
         return _invTailText;
     }
 
-    // A 3-state status chip: "<name> · Off|Listed|Everyone". Two complete pills swapped by a Conditional wrapping the
+    private string InviteStatusTailCompact()
+    {
+        if (_invPartyMode == InviteAutoAccept.ModeOff && _invIntMode == InviteAutoAccept.ModeOff
+            && _invLeaderMode == InviteAutoAccept.ModeOff) return "· all off";
+        int n = _invRosterView.Count;
+        if (n != _invTailCompactN) { _invTailCompactN = n; _invTailCompactText = "· " + n; }
+        return _invTailCompactText;
+    }
+
+    // A 3-state status chip: "<name> · Off|Listed|Everyone", or with compact (the hub card) "<name> · Off|List|All" so
+    // three lit chips + the count fit beside the card's › arrow. Two complete pills swapped by a Conditional wrapping the
     // WHOLE pill (never a Conditional inside a bubble's measured child): Off = muted on a faint muted pill, else the
     // system's colour on a 22% pill of it. Unlike StatusChip it HUGS its label (bubble in a Row, explicit MaxWidth —
     // a MaxWidth-0 bubble under a Conditional caps at 100 px): a fixed width for "Everyone" in all three chips would not
@@ -195,9 +217,11 @@ public sealed partial class Plugin
     // (Stellar-Design-Language "clickable chip" note). Labels prebuilt — nothing is formatted per frame.
     private const float ModeChipMaxWidth = 150f;
 
-    private HudElement ModeChip(string name, ColorRgba color, Func<int> mode)
+    private HudElement ModeChip(string name, ColorRgba color, Func<int> mode, bool compact = false)
     {
-        var labels = new[] { name + " · Off", name + " · Listed", name + " · Everyone" };
+        var labels = compact
+            ? new[] { name + " · Off", name + " · List",   name + " · All" }
+            : new[] { name + " · Off", name + " · Listed", name + " · Everyone" };
         return new ConditionalElement(() => mode() != InviteAutoAccept.ModeOff,
             ModeChipPill(new TextElement(() => labels[ClampInviteMode(mode())], Color: () => color, NoWrap: true,
                     FontSize: 12) { Bold = true }, () => color with { A = 0.22f }),

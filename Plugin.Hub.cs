@@ -47,7 +47,7 @@ public sealed partial class Plugin
     private void BuildHubTools()
     {
         AddHubTool("Mute Instruments",    BandMuteIconPng,   BandMuteStatus,   _bandMuteWindow);
-        AddHubTool("Auto-Accept Invites", AutoAcceptIconPng, InviteStatus,     _inviteWindow);
+        AddHubTool("Auto-Accept Invites", AutoAcceptIconPng, InviteStatusCompact, _inviteWindow);
         AddHubTool("Language & Text",     LanguageIconPng,   LanguageStatus,   _languageWindow);
         AddHubTool("Performance",         PerformanceIconPng, PerformanceHubStatus, _effectWindow);
         AddHubTool("Power Saving",        PowerSaveIconPng,  PowerSaveStatus,  _powerSaveWindow);
