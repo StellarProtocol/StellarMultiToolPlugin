@@ -8,20 +8,20 @@ namespace Stellar.MultiTool;
 
 // UI for the invite auto-accept systems (see InviteAutoAccept for the Lua mechanism).
 //
-// Layout, top to bottom: "Party Requests" (one approve-all join-request toggle — not list-related), then "Auto-Accept
-// from Listed Players" (Party invites + Social invites toggles), then ONE "Players" roster where each person has a
-// Party switch and a Social switch (Plugin.InviteRoster.cs — the two per-system uid-sets plus a roster-only list for
-// people with both off; rows keep a stable order-added, invite_player_order, so a switch flip never moves a row).
-// The Social toggle/uid-set drives BOTH the co-op-emote (multaction) invite AND both ride-together (vehicle/mount)
-// directions — one shared rule set (the existing invite_interaction_* config + __stellar_inv_int_* globals); no separate mount config.
+// Layout, top to bottom (approved mockups multitool-autoaccept-modes.html + multitool-autoaccept-leader.html option
+// B): ONE "Accept automatically" panel with a 3-way mode per system — Party (invites + join requests), Social (co-op
+// emote + ride together), Party leader requests — each Off / Listed / Everyone; then ONE "Players" roster where each
+// person has a Party, a Social and a Leader switch (Plugin.InviteAccept.Table.cs + Plugin.InviteRoster.cs — the three
+// per-system uid-sets plus a roster-only list for people with every switch off; rows keep a stable order-added,
+// invite_player_order, so a switch flip never moves a row). A column's switches only matter while its system is
+// Listed, so the column is dimmed otherwise (state kept, still clickable).
 //
-// WHITELIST ONLY: party + social auto-accept ONLY the ticked uids (never mass-accept strangers). The old
-// Blacklist/Whitelist mode dropdowns are gone; InviteAutoAccept's Set* API still takes a whitelist flag, so we always
-// pass true (InviteWhitelistOnly), and the invite_*_whitelist config keys are still written — always true — so an old
-// Blacklist config is rewritten on load (InitInviteAccept). Join requests stay approve-ALL (no list).
-// All default OFF. uids are decimal character ids, kept as strings (int64 precision — the uid can exceed 2^53),
-// persisted to config, and pushed to the controller on every change so the Lua state updates immediately rather than
-// waiting for the ~3s re-assert. "Clear all" asks first (Plugin.InviteClearConfirm.cs).
+// Config: invite_party_mode / invite_social_mode / invite_leader_mode (int 0/1/2, InviteAutoAccept.Mode*), plus the
+// uid lists invite_party_uids / invite_interaction_uids / invite_leader_uids. The pre-1.3 on/off keys
+// (invite_party_enabled, invite_interaction_enabled, invite_party_apply_enabled) are only READ, once, to migrate
+// (MigrateInviteModes). All default Off. uids are decimal character ids, kept as strings (int64 precision — the uid
+// can exceed 2^53), persisted to config, and pushed to the controller on every change so the Lua state updates
+// immediately rather than waiting for the ~3s re-assert. "Clear all" asks first (Plugin.InviteClearConfirm.cs).
 public sealed partial class Plugin
 {
     private IWindowControl  _inviteWindow = null!;
@@ -29,23 +29,19 @@ public sealed partial class Plugin
     private InviteNameResolver _nameResolver = null!;   // resolves uid → display name for the list rows (session cache)
     private InviteProfileResolver _profile = null!;     // resolves uid → {name, level, avatar png} for the Add dialog card
 
-    // Whitelist-only: the flag InviteAutoAccept.SetParty / SetInteraction still take. Never false (see header).
-    private const bool InviteWhitelistOnly = true;
+    private int _invPartyMode, _invIntMode, _invLeaderMode;   // InviteAutoAccept.ModeOff / ModeListed / ModeEveryone
+    private List<string> _invPartyUids  = new();
+    private List<string> _invIntUids    = new();
+    private List<string> _invLeaderUids = new();
 
-    private bool _invPartyEnabled;
-    private bool _invIntEnabled;
-    private bool _invPartyApplyEnabled;   // (4) approve ALL party-join requests — single toggle, no list/mode
-    private List<string> _invPartyUids = new();
-    private List<string> _invIntUids   = new();
-
-    // Players list geometry. A row holds the name + two toggle capsules + a ✕ remove button; 26f pitch fits the ✕
+    // Players list geometry. A row holds the name + three toggle capsules + a ✕ remove button; 26f pitch fits the ✕
     // button (a comfortable click target; VirtualList RowHeight IS the pitch).
     private const float InviteRowHeight   = 26f;
     private const float InviteListHeight  = 156f;  // 6 visible rows
     private const int   InviteUidPoolSize = 9;     // ceil(156/26) + 3 (WindowBuilder-Patterns.md §VirtualList pitch)
-    private const float InviteSwitchColW  = 100f;  // switch column; "Party"/"Social" header + toggle both centred in it
+    private const float InviteSwitchColW  = 80f;   // switch column; "Party"/"Social"/"Leader" header + toggle centred in it
     private const float InviteRemoveColW  = 28f;   // the ✕ column (24px button, right-aligned)
-    private const float InviteWindowWidth = 480f;  // 440 default + room for the two switch columns + ✕
+    private const float InviteWindowWidth = 540f;  // 480 + ~60 for the Leader column (approved mockup option B)
 
     // ── setup ─────────────────────────────────────────────────────────────────────────────────────────────────────
     // Config is restored and pushed into the controller BEFORE Install() so a persisted rule set is already in force
@@ -53,32 +49,23 @@ public sealed partial class Plugin
     // IFramework.Update subscription — same shape as AutoPlayPermitControl).
     private void InitInviteAccept()
     {
-        _invPartyEnabled   = _cfg.Get<bool>("invite_party_enabled",   false);
-        _invPartyUids      = _cfg.Get<List<string>>("invite_party_uids", null) ?? new List<string>();
-        _invIntEnabled     = _cfg.Get<bool>("invite_interaction_enabled",   false);
-        _invIntUids        = _cfg.Get<List<string>>("invite_interaction_uids", null) ?? new List<string>();
-        // Whitelist-only migration: a config saved in the old Blacklist mode (whitelist=false) is rewritten to true
-        // now, so the file can't disagree with what's in force (the Set* calls below push true regardless).
-        if (!_cfg.Get<bool>("invite_party_whitelist", true) || !_cfg.Get<bool>("invite_interaction_whitelist", true))
-        {
-            _cfg.Set("invite_party_whitelist",       InviteWhitelistOnly);
-            _cfg.Set("invite_interaction_whitelist", InviteWhitelistOnly);
-            _cfgLoadDirty = true;   // persisted by the constructor's single post-Init save (Plugin.cs)
-        }
-        _invPartyApplyEnabled = _cfg.Get<bool>("invite_party_apply_enabled", false);
-        // Roster-only = listed with both switches off (Plugin.InviteRoster.cs). Never pushed to Lua. Normalised after
-        // both uid-sets are loaded so anyone with a switch on is dropped from it.
-        _invRosterUids     = _cfg.Get<List<string>>("invite_roster_uids", null) ?? new List<string>();
+        _invPartyUids  = _cfg.Get<List<string>>("invite_party_uids", null) ?? new List<string>();
+        _invIntUids    = _cfg.Get<List<string>>("invite_interaction_uids", null) ?? new List<string>();
+        _invLeaderUids = _cfg.Get<List<string>>("invite_leader_uids", null) ?? new List<string>();
+        MigrateInviteModes();
+        // Roster-only = listed with every switch off (Plugin.InviteRoster.cs). Never pushed to Lua. Normalised after
+        // all uid-sets are loaded so anyone with a switch on is dropped from it.
+        _invRosterUids = _cfg.Get<List<string>>("invite_roster_uids", null) ?? new List<string>();
         NormalizeRosterOnly();
         // Display order (invite_player_order): seeded from the current grouped order on first load, then reconciled
-        // against the three lists — must run after all of them are loaded + normalised (Plugin.InviteRoster.cs).
+        // against the lists — must run after all of them are loaded + normalised (Plugin.InviteRoster.cs).
         LoadInviteOrder();
 
         _invite = new InviteAutoAccept(_services);
-        _invite.SetParty(_invPartyEnabled, InviteWhitelistOnly, _invPartyUids);
+        _invite.SetParty(_invPartyMode, _invPartyUids);
         // SetInteraction drives BOTH the co-op-emote invite and both ride-together directions (one shared uid-set).
-        _invite.SetInteraction(_invIntEnabled, InviteWhitelistOnly, _invIntUids);
-        _invite.SetPartyApply(_invPartyApplyEnabled);   // (4) approve-all party-join requests (no list)
+        _invite.SetInteraction(_invIntMode, _invIntUids);
+        _invite.SetLeader(_invLeaderMode, _invLeaderUids);
         _invite.Install();
 
         // Name resolver: injects its Lua helper + polls the shared flush global. PushWantedNames seeds the set with the
@@ -108,8 +95,47 @@ public sealed partial class Plugin
         InitInviteClearConfirm();
     }
 
+    // One-time migration to the 3-way modes. A mode key that is missing (sentinel -1) is derived from the pre-1.3
+    // on/off keys and written, so this runs once per key and the old keys are never consulted again:
+    //   Party  = Listed if the old party-invite toggle was on; else Everyone if "Accept all party requests" was on; else Off.
+    //   Social = Listed if the old social toggle was on; else Off.     Leader = Off (new).
+    // Staged only; persisted by the constructor's single post-Init save (Plugin.cs _cfgLoadDirty).
+    private void MigrateInviteModes()
+    {
+        _invPartyMode = _cfg.Get<int>("invite_party_mode", -1);
+        if (_invPartyMode < 0)
+        {
+            _invPartyMode = _cfg.Get<bool>("invite_party_enabled", false) ? InviteAutoAccept.ModeListed
+                : _cfg.Get<bool>("invite_party_apply_enabled", false) ? InviteAutoAccept.ModeEveryone
+                : InviteAutoAccept.ModeOff;
+            _cfg.Set("invite_party_mode", _invPartyMode);
+            _cfgLoadDirty = true;
+        }
+        _invIntMode = _cfg.Get<int>("invite_social_mode", -1);
+        if (_invIntMode < 0)
+        {
+            _invIntMode = _cfg.Get<bool>("invite_interaction_enabled", false)
+                ? InviteAutoAccept.ModeListed : InviteAutoAccept.ModeOff;
+            _cfg.Set("invite_social_mode", _invIntMode);
+            _cfgLoadDirty = true;
+        }
+        _invLeaderMode = _cfg.Get<int>("invite_leader_mode", -1);
+        if (_invLeaderMode < 0)
+        {
+            _invLeaderMode = InviteAutoAccept.ModeOff;
+            _cfg.Set("invite_leader_mode", _invLeaderMode);
+            _cfgLoadDirty = true;
+        }
+        _invPartyMode  = ClampInviteMode(_invPartyMode);   // a hand-edited value can only ever mean 0/1/2
+        _invIntMode    = ClampInviteMode(_invIntMode);
+        _invLeaderMode = ClampInviteMode(_invLeaderMode);
+    }
+
+    private static int ClampInviteMode(int m) =>
+        m == InviteAutoAccept.ModeListed || m == InviteAutoAccept.ModeEveryone ? m : InviteAutoAccept.ModeOff;
+
     // Every save path funnels through here, so it also refreshes the cached roster view the Players rows index.
-    // The wanted set = everyone the roster shows (party ∪ social ∪ roster-only) — the set to keep names for.
+    // The wanted set = everyone the roster shows (party ∪ social ∪ leader ∪ roster-only) — the set to keep names for.
     private void PushWantedNames()
     {
         RebuildRosterView();
@@ -131,45 +157,87 @@ public sealed partial class Plugin
     }
 
     // ── window ────────────────────────────────────────────────────────────────────────────────────────────────────
-    // Layout per the approved mockup (multitool-tools.html): header (icon + title + the hub card's live status chips),
-    // then the three sections as dark captioned panels (Plugin.Style.cs).
+    // Header (icon + title + the hub card's live status chips), then the two sections as dark captioned panels.
     private HudElement BuildInviteAcceptRoot() => new ColumnElement(new HudElement[]
     {
         ToolHeader(AutoAcceptIconPng, "Auto-Accept Invites", InviteStatus()),
-        BuildPartyRequestsSection(),
-        BuildListedAutoAcceptSection(),
+        BuildAcceptModesSection(),
         BuildPlayersSection(),
     }, Gap: 8f);
 
     // Live status, shared by the hub card and this window's header (one builder → they can't drift): one chip per
-    // system (lit in its own colour when on, grey when off), then the roster size — or "all off".
+    // system ("Party · Listed"; grey when Off, lit in its colour otherwise), then the roster size — or "all off".
     private HudElement InviteStatus() => new RowElement(new HudElement[]
     {
-        StatusChip("Party",  ChipParty,  () => _invPartyEnabled),
-        StatusChip("Social", ChipSocial, () => _invIntEnabled),
-        StatusChip("Join",   ChipJoin,   () => _invPartyApplyEnabled),
+        ModeChip("Party",  ChipParty,  () => _invPartyMode),
+        ModeChip("Social", ChipSocial, () => _invIntMode),
+        ModeChip("Leader", ChipJoin,   () => _invLeaderMode),   // the old Join chip's colour
         new TextElement(InviteStatusTail, Color: () => MutedColor(), NoWrap: true),
     }, Gap: 4f);
 
+    private int _invTailN = -1;       // cached tail text: polled per frame by two windows, rebuilt only when N changes
+    private string _invTailText = "";
+
     private string InviteStatusTail()
     {
-        if (!_invPartyEnabled && !_invIntEnabled && !_invPartyApplyEnabled) return "· all off";
+        if (_invPartyMode == InviteAutoAccept.ModeOff && _invIntMode == InviteAutoAccept.ModeOff
+            && _invLeaderMode == InviteAutoAccept.ModeOff) return "· all off";
         int n = _invRosterView.Count;
-        return n == 1 ? "· 1 player" : $"· {n} players";
+        if (n != _invTailN) { _invTailN = n; _invTailText = n == 1 ? "· 1 player" : $"· {n} players"; }
+        return _invTailText;
     }
 
-    // (4) Party JOIN REQUESTS — the inverse of Party invites (someone applying to join MY party). Its own section
-    // because it has nothing to do with the roster: no per-player switch, one toggle that approves EVERY request.
-    private HudElement BuildPartyRequestsSection() => SectionPanel(() => "Party requests", null,
-        InviteToggleRow("Accept all party requests", () => _invPartyApplyEnabled, OnInvitePartyApplyToggle));
+    // A 3-state status chip: "<name> · Off|Listed|Everyone". Two complete pills swapped by a Conditional wrapping the
+    // WHOLE pill (never a Conditional inside a bubble's measured child): Off = muted on a faint muted pill, else the
+    // system's colour on a 22% pill of it. Unlike StatusChip it HUGS its label (bubble in a Row, explicit MaxWidth —
+    // a MaxWidth-0 bubble under a Conditional caps at 100 px): a fixed width for "Everyone" in all three chips would not
+    // fit the hub card. Both states bold at an explicit 12 px (the plain path ignores FontSize) so they size alike
+    // (Stellar-Design-Language "clickable chip" note). Labels prebuilt — nothing is formatted per frame.
+    private const float ModeChipMaxWidth = 150f;
 
-    // The two list-driven systems: they only ever accept players ticked in the roster below (whitelist-only) — the
-    // caption says so, so the labels don't repeat "(listed players)".
-    private HudElement BuildListedAutoAcceptSection() => SectionPanel(() => "From listed players", null,
-        InviteToggleRow("Party invites", () => _invPartyEnabled, OnInvitePartyToggle),
-        InviteToggleRow("Social invites (co-op emote + ride together)", () => _invIntEnabled, OnInviteIntToggle));
+    private HudElement ModeChip(string name, ColorRgba color, Func<int> mode)
+    {
+        var labels = new[] { name + " · Off", name + " · Listed", name + " · Everyone" };
+        return new ConditionalElement(() => mode() != InviteAutoAccept.ModeOff,
+            ModeChipPill(new TextElement(() => labels[ClampInviteMode(mode())], Color: () => color, NoWrap: true,
+                    FontSize: 12) { Bold = true }, () => color with { A = 0.22f }),
+            ModeChipPill(new TextElement(() => labels[0], Color: () => MutedColor(), NoWrap: true, FontSize: 12)
+                    { Bold = true }, () => MutedColor() with { A = 0.15f }));
+    }
 
-    // Toggle capsule + label. Shared by all three toggle rows so their layouts can't drift.
+    // Same strut + padding as ChipPill (24 px tall in both states), minus the fixed-width cell.
+    private HudElement ModeChipPill(TextElement text, Func<ColorRgba> fill) => new BubbleElement(
+        new RowElement(new HudElement[]
+        {
+            new SpacerElement(0f, ChipStrutHeight),   // width 0 + height > 0 = a non-flexible height strut
+            text,
+        }, Gap: 0.01f, Justify: RowJustify.Center))
+    { FillColorFn = () => Fade(fill()), PaddingX = 6f, PaddingY = 1f, MaxWidth = ModeChipMaxWidth };
+
+    // "Accept automatically": one row per system — bold name + muted sub-label, then Off / Listed / Everyone pills.
+    private HudElement BuildAcceptModesSection() => SectionPanel(() => "Accept automatically", null,
+        InviteModeRow("Party", "invites and join requests", () => _invPartyMode, SetInvitePartyMode),
+        InviteModeRow("Social", "co-op emote + ride together", () => _invIntMode, SetInviteIntMode),
+        InviteModeRow("Party leader requests", "a member asks to take over as leader", () => _invLeaderMode,
+            SetInviteLeaderMode));
+
+    private HudElement InviteModeRow(string name, string sub, Func<int> get, Action<int> set) => new ColumnElement(
+        new HudElement[]
+        {
+            new RowElement(new HudElement[]
+            {
+                new TextElement(() => name, Color: () => TextColor(), Emphasis: true, NoWrap: true),
+                new TextElement(() => sub, Color: () => MutedColor(), NoWrap: true),
+            }, Gap: 6f),
+            new RowElement(new HudElement[]
+            {
+                ChoicePill("Off",      () => get() == InviteAutoAccept.ModeOff,      () => set(InviteAutoAccept.ModeOff)),
+                ChoicePill("Listed",   () => get() == InviteAutoAccept.ModeListed,   () => set(InviteAutoAccept.ModeListed)),
+                ChoicePill("Everyone", () => get() == InviteAutoAccept.ModeEveryone, () => set(InviteAutoAccept.ModeEveryone)),
+            }, Gap: 6f),
+        }, Gap: 4f);
+
+    // Toggle capsule + label (no longer used by Auto-Accept itself; the Language window's rows share it).
     private static HudElement InviteToggleRow(string label, Func<bool> get, Action<bool> set) => new RowElement(
         new HudElement[]
         {
@@ -177,151 +245,45 @@ public sealed partial class Plugin
             new TextElement(() => label),
         }, Gap: 6f);
 
-    // The ONE roster panel: caption "Players (N)" + table header + divider + rows (Name (uid) · Party · Social · ✕) +
-    // one row with "Add player…" and "Clear all". Turning both switches off keeps the row (roster-only); only ✕ /
-    // Clear all delete. The header is styled as a header (bold + muted, divider under it) so it doesn't read as a data
-    // row; the count lives in the caption, not the header.
-    private HudElement BuildPlayersSection() => SectionPanel(() => $"Players ({_invRosterView.Count})", null,
-        // Header cells mirror the row cells' widths exactly (incl. the empty ✕ column + same Gap), and the two switch
-        // labels are centred by the SAME inner-Row mechanism as SwitchCell — so label and capsule share one centre line.
-        // The transparent bubble carries the SAME horizontal padding as each row's tile (RosterTile) so the header
-        // columns stay over the row columns.
-        RosterTile(new RowElement(new HudElement[]
-        {
-            new CellElement(InviteHeaderText(() => "Player"), Weight: 1f),
-            HeaderSwitchCell("Party"),
-            HeaderSwitchCell("Social"),
-            new CellElement(new TextElement(() => ""), Width: InviteRemoveColW),
-        }, Gap: 4f), () => Transparent),
-        new SeparatorElement(),   // the themed divider under the header
-        new VirtualListElement(
-            Count:     () => _invRosterView.Count,
-            RowHeight: InviteRowHeight,
-            Pool:      BuildRosterPool(),
-            OnWindow:  f => _invRosterFirst = f,
-            Height:    InviteListHeight),
-        // Equal halves: both pills share PillPairWidth so the weighted cells split equally (Plugin.Style.cs PillPair).
-        PillPair(
-            PrimaryButton(() => "Add player…", OpenInviteAddDialog, PillPairWidth),
-            // Asks first — the confirm window runs the actual ClearAllInviteLists (Plugin.InviteClearConfirm.cs).
-            NeutralButton(() => "Clear all", OpenInviteClearConfirm, PillPairWidth)));
+    // A roster column only matters while its system is Listed → dim it otherwise (Plugin.InviteAccept.Table.cs).
+    private bool PartyColDim()  => _invPartyMode  != InviteAutoAccept.ModeListed;
+    private bool SocialColDim() => _invIntMode    != InviteAutoAccept.ModeListed;
+    private bool LeaderColDim() => _invLeaderMode != InviteAutoAccept.ModeListed;
 
-    private const float InviteTilePadX   = 6f;     // roster tile inner padding (header uses the same, so columns align)
+    // ── mode handlers ─────────────────────────────────────────────────────────────────────────────────────────────
+    private void SetInvitePartyMode(int m)  { if (m == _invPartyMode) return;  _invPartyMode = m;  SavePartyInvite(); }
+    private void SetInviteIntMode(int m)    { if (m == _invIntMode) return;    _invIntMode = m;    SaveIntInvite(); }
+    private void SetInviteLeaderMode(int m) { if (m == _invLeaderMode) return; _invLeaderMode = m; SaveLeaderInvite(); }
 
-    // A roster row's raised tile (TileColor, live from the theme), or — with a transparent fill — the header's matching padding.
-    private HudElement RosterTile(HudElement row, Func<ColorRgba> fill) =>
-        new BubbleElement(row) { FillColorFn = () => Fade(fill()), PaddingX = InviteTilePadX, PaddingY = 0f };
-
-    // Table-header label: bold + muted so it reads as a header, not a data row. NoWrap keeps it on the row pitch.
-    private TextElement InviteHeaderText(Func<string> text) => new TextElement(text,
-        Color: () => (ColorRgba?)_services.Theme.Colors.TextMuted, Emphasis: true, NoWrap: true);
-
-    // Header label for a switch column: same Width + inner RowElement(Justify: Center) as SwitchCell. Text-align alone
-    // isn't enough — the CellElement force-expands its child, so the label's box (not its glyphs) decides the centre;
-    // the Row wrapper keeps the label at its intrinsic width and centres that box, exactly like the capsule below it
-    // (WindowBuilder-Patterns.md §SelectableElement-and-CellElement force-expand).
-    private HudElement HeaderSwitchCell(string label) => new CellElement(
-        new RowElement(new HudElement[] { InviteHeaderText(() => label) }, Justify: RowJustify.Center),
-        Width: InviteSwitchColW);
-
-    // Fixed row pool reused across logical rows (_invRosterFirst = the window's first logical index, set by OnWindow).
-    // Every lambda re-resolves its uid through RosterAt(first + slot), so a pool slot never acts on a stale person.
-    // That matters because rows shift: ✕ rebuilds _invRosterView synchronously inside RemoveFromInviteList, so a
-    // different person slides into this slot (a switch flip no longer reorders — the stored invite_player_order keeps
-    // each row where it was added, Plugin.InviteRoster.cs — but the click-time resolve stays as the guard). The framework
-    // toggle is a Button whose click runs set(!get()) once — both resolve the uid at click time (the person actually
-    // shown), and the per-frame binding only re-reads Get for the visual, never calls Set — so a shift can't flip the
-    // next person's switch. The ✕ likewise resolves its uid at click time.
-    private HudElement[] BuildRosterPool()
-    {
-        var pool = new HudElement[InviteUidPoolSize];
-        for (int s = 0; s < InviteUidPoolSize; s++)
-        {
-            int slot = s;
-            string? Uid() => RosterAt(_invRosterFirst + slot);
-            pool[s] = RosterTile(new RowElement(new HudElement[]
-            {
-                // NoWrap: a long name must clip, never wrap — rows sit at a fixed RowHeight pitch, so a 2-line row would
-                // overlap the next one (WindowBuilder-Patterns.md §"Hard-clip a long list row").
-                new CellElement(new TextElement(() => Uid() is { } u ? InviteRowText(u) : "", NoWrap: true), Weight: 1f),
-                SwitchCell(() => Uid() is { } u && InParty(u),
-                           on => { if (Uid() is { } u) SetInviteSwitch(u, social: false, on); }),
-                SwitchCell(() => Uid() is { } u && InSocial(u),
-                           on => { if (Uid() is { } u) SetInviteSwitch(u, social: true, on); }),
-                // Same inner-RowElement trick as SwitchCell so the cell doesn't stretch the icon across the column.
-                new CellElement(new RowElement(new HudElement[]
-                    {
-                        RemoveIcon(slot, Uid, () => { if (Uid() is { } u) RemoveFromInviteList(u); }),
-                    }, Justify: RowJustify.Right),
-                    Width: InviteRemoveColW),
-            }, Gap: 4f), TileColor);
-        }
-        return pool;
-    }
-
-    // Icon-only ✕: at rest just a MenuMuted glyph (no border/fill); on hover a red glyph on a soft red rounded wash.
-    // Pill technique: a Bubble whose FillColorFn follows a per-slot hover flag, around a SelectableElement.Bare (Bare =
-    // no tint/padding of its own, so the selectable's default hover wash can't stack with the red one). The strut row
-    // pins it to ~24×24 (2×3 + glyph wide, 20 + 2×2 tall), the old ✕ button's footprint, so the columns and header don't
-    // shift; the row's MiddleLeft alignment keeps it vertically centred.
-    // ⚠️ Pooled row: the flag is keyed per pool SLOT and reset whenever the slot shows a different uid (a ✕ click
-    // slides the next person under the pointer; they must not inherit a red hover state until the pointer re-enters).
-    private static readonly ColorRgba RemoveWash  = Rgb(0xff4d4f, 0.22f);
-    private static readonly ColorRgba RemoveGlyph = Rgb(0xff8a8b);
-    private readonly bool[]    _invRemoveHover    = new bool[InviteUidPoolSize];
-    private readonly string?[] _invRemoveHoverUid = new string?[InviteUidPoolSize];
-
-    private bool RemoveHovered(int slot, Func<string?> uid)
-    {
-        var u = uid();
-        if (u != _invRemoveHoverUid[slot]) { _invRemoveHoverUid[slot] = u; _invRemoveHover[slot] = false; }
-        return _invRemoveHover[slot];
-    }
-
-    private HudElement RemoveIcon(int slot, Func<string?> uid, Action onClick) => new BubbleElement(
-        new SelectableElement(new RowElement(new HudElement[]
-            {
-                new SpacerElement(3f, 20f),
-                new TextElement(() => "✕", NoWrap: true,
-                    Color: () => RemoveHovered(slot, uid)
-                        ? EnsureContrast(RemoveGlyph, Over(RemoveWash, TileColor()), 3f)
-                        : MutedColor()),
-                new SpacerElement(3f, 20f),
-            }, Gap: 0.01f, Justify: RowJustify.Center),
-            OnClick: onClick)
-        {
-            Bare = true,
-            OnHover = over => { _invRemoveHover[slot] = over; _invRemoveHoverUid[slot] = uid(); },
-        })
-    {
-        FillColorFn = () => RemoveHovered(slot, uid) ? Fade(RemoveWash) : Transparent,   // wash on the faded tile
-        CornerRadius = 4f, PaddingX = 2f, PaddingY = 2f,
-    };
-
-    // A toggle capsule centred in a fixed-width column. The inner RowElement matters: CellElement force-expands its
-    // child's width, which would stretch the 30px capsule across the column; a RowElement's HLG keeps it intrinsic
-    // (WindowBuilder-Patterns.md §ToggleElement / §SelectableElement-and-CellElement force-expand).
-    private static HudElement SwitchCell(Func<bool> get, Action<bool> set) => new CellElement(
-        new RowElement(new HudElement[] { new ToggleElement(Label: () => "", Get: get, Set: set) },
-                       Justify: RowJustify.Center),
-        Width: InviteSwitchColW);
-
-    // ── party handlers ────────────────────────────────────────────────────────────────────────────────────────────
-    private void OnInvitePartyToggle(bool on) { _invPartyEnabled = on; SavePartyInvite(); }
     // Per-person switch handlers live in Plugin.InviteRoster.cs (shared with the per-player dialog).
     // ONE _cfg.Save per user action. The framework's FileConfigStore writes on a single background thread with no
     // retry on IOException: two back-to-back Saves meant the second write could hit a transient external lock on the
     // just-written file (AV scan / watcher read) and be DROPPED — "Clear all" left invite_interaction_uids on disk
     // while memory showed 0 players. So the per-section Stage* methods only Set keys + push into Lua, and
     // CommitInviteConfig does the single disk Save + re-view. Multi-section actions stage every section, commit once.
-    private void SavePartyInvite() { StagePartyInvite(); CommitInviteConfig(); }
+    private void SavePartyInvite()  { StagePartyInvite();  CommitInviteConfig(); }
+    private void SaveIntInvite()    { StageIntInvite();    CommitInviteConfig(); }
+    private void SaveLeaderInvite() { StageLeaderInvite(); CommitInviteConfig(); }
 
     private void StagePartyInvite()
     {
-        _cfg.Set("invite_party_enabled",   _invPartyEnabled);
-        _cfg.Set("invite_party_whitelist", InviteWhitelistOnly);   // kept, always true (whitelist-only)
-        _cfg.Set("invite_party_uids",      _invPartyUids);
-        _invite.SetParty(_invPartyEnabled, InviteWhitelistOnly, _invPartyUids);
+        _cfg.Set("invite_party_mode", _invPartyMode);
+        _cfg.Set("invite_party_uids", _invPartyUids);
+        _invite.SetParty(_invPartyMode, _invPartyUids);
+    }
+
+    private void StageIntInvite()
+    {
+        _cfg.Set("invite_social_mode",      _invIntMode);
+        _cfg.Set("invite_interaction_uids", _invIntUids);
+        _invite.SetInteraction(_invIntMode, _invIntUids);
+    }
+
+    private void StageLeaderInvite()
+    {
+        _cfg.Set("invite_leader_mode", _invLeaderMode);
+        _cfg.Set("invite_leader_uids", _invLeaderUids);
+        _invite.SetLeader(_invLeaderMode, _invLeaderUids);
     }
 
     // The single disk write for any invite-roster change, then refresh the roster view + the resolver's wanted set
@@ -330,30 +292,6 @@ public sealed partial class Plugin
     {
         _cfg.Save();
         PushWantedNames();
-    }
-
-    // ── party-join-request handler ────────────────────────────────────────────────────────────────────────────────
-    // Single toggle, no uids → never touches PushWantedNames / name resolution.
-    private void OnInvitePartyApplyToggle(bool on) { _invPartyApplyEnabled = on; SavePartyApply(); }
-
-    private void SavePartyApply()
-    {
-        _cfg.Set("invite_party_apply_enabled", _invPartyApplyEnabled);
-        _cfg.Save();
-        _invite.SetPartyApply(_invPartyApplyEnabled);
-    }
-
-    // ── interaction handlers ──────────────────────────────────────────────────────────────────────────────────────
-    private void OnInviteIntToggle(bool on) { _invIntEnabled = on; SaveIntInvite(); }
-
-    private void SaveIntInvite() { StageIntInvite(); CommitInviteConfig(); }
-
-    private void StageIntInvite()
-    {
-        _cfg.Set("invite_interaction_enabled",   _invIntEnabled);
-        _cfg.Set("invite_interaction_whitelist", InviteWhitelistOnly);   // kept, always true (whitelist-only)
-        _cfg.Set("invite_interaction_uids",      _invIntUids);
-        _invite.SetInteraction(_invIntEnabled, InviteWhitelistOnly, _invIntUids);
     }
 
     // ── validate ──────────────────────────────────────────────────────────────────────────────────────────────────
