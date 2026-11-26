@@ -33,8 +33,8 @@ namespace Stellar.MultiTool;
 ///       the vehicle stubs) — a COLON method, so the wrap keeps self and calls the original FIRST (its SetApplyList +
 ///       red-point bookkeeping must run). Approve via <c>Z.VMMgr.GetVM("team").AsyncDealApplyJoin(applyId, true, token)</c>
 ///       — <c>applyId</c> is a STRING reply key (<c>vRequest.item.applyId</c>; pass as-is, no tostring/convert). A
-///       backlog sweep (applies already pending when the toggle flips on, keyed under <c>Z.DataMgr.Get("team_data").applyList</c>)
-///       runs once per re-assert tick, de-duped by a transient seen-set so an in-flight approve is not re-fired. NO
+///       backlog sweep (applies already pending when the toggle flips on, keyed under team_data.applyList — PEEKED
+///       from DataMgr's cache, never <c>Z.DataMgr.Get</c>) runs once per re-assert tick, de-duped by a transient seen-set so an in-flight approve is not re-fired. NO
 ///       uid-set → does NOT participate in name resolution. Pushed as <c>__stellar_inv_partyapply_on</c>.
 ///
 /// Hooked by Lua VM-method override (NOT Harmony — these are Lua methods and a C# patch risks AOT-inlining). Each wrap
@@ -70,8 +70,9 @@ internal sealed class InviteAutoAccept
     private IReadOnlyCollection<string> _partyUids = Array.Empty<string>();
     private IReadOnlyCollection<string> _intUids   = Array.Empty<string>();
 
-    private bool  _subscribed;
-    private float _timer;
+    private bool   _subscribed;
+    private float  _timer;
+    private double _tdHealed;   // last seen _mt_td_healed (team_data self-heal count) — log once per increase
 
     // Called from the plugin on any config change: store the new flags/uids and push them into Lua immediately so the
     // change bites without waiting for the next re-assert tick.
@@ -125,9 +126,11 @@ internal sealed class InviteAutoAccept
     // this is safe to run repeatedly and before login.
     public void Apply()
     {
+        bool tdLua = EnsureTeamDataLua();   // defines the cache peek the sweep + heal use (once per Lua state)
         InstallWrap();
         PushState();
         SweepPartyApplyBacklog();   // (4) best-effort: clear applies that were already pending when the toggle flipped on
+        if (tdLua) HealTeamData();   // every tick, regardless of toggles: repair a team_data poisoned by ANY early caller
     }
 
     public void Reassert() => Apply();
@@ -147,8 +150,69 @@ internal sealed class InviteAutoAccept
         " rawset(_G,'__stellar_inv_partyapply_on', " + Lit(_partyApplyOn) + ")" +
         " end)");
 
+    // team_data cache PEEK + self-heal. ⚠️ We must NEVER call Z.DataMgr.Get('team_data') on a timer (1.2.0's sweep did):
+    // DataMgr caches the object BEFORE Init(), so if we are the first caller while TeamTargetTableMgr isn't registered
+    // yet (tables load async; world-active ≠ tables ready) Init throws inside our pcall and the half-built team_data
+    // sticks for the session — My Party then shows "Loading" forever (KB Lua-Injection-from-CSharp.md
+    // "Z.DataMgr.Get caches BEFORE Init()"; same fix as RaidManager 2.9.1). __stellar_mt_tdPeek reads DataMgr's
+    // cached_data upvalue via debug.getupvalue and returns the instance ONLY if the game already made it (never
+    // creates). __stellar_mt_tdHeal re-runs InitCfgData once on a cached instance that lacks TeamTargetTableDatas once
+    // the table is registered, and bumps _mt_td_healed (C# logs once per increase). Defined once per Lua state (KB
+    // "poll big chunks via a once-compiled _G function"); every global goes through rawset (_G.__newindex drops plain
+    // new globals).
+    private const string TdDefChunk = @"pcall(function()
+rawset(_G, '__stellar_mt_tdPeek', function()
+  local up = debug ~= nil and debug.getupvalue or nil
+  if up == nil then return nil end
+  local cache
+  for i = 1, 8 do
+    local n, v = up(Z.DataMgr.Get, i)
+    if n == nil then break end
+    if n == 'cached_data' then cache = v break end
+  end
+  if type(cache) ~= 'table' then return nil end
+  return rawget(cache, 'team_data')
+end)
+rawset(_G, '__stellar_mt_tdHeal', function()
+  if Z.TableMgr.GetTable('TeamTargetTableMgr') == nil then return end
+  local td = __stellar_mt_tdPeek()
+  if td ~= nil and rawget(td, 'TeamTargetTableDatas') == nil and rawget(td, '__mt_healed') ~= true then
+    rawset(td, '__mt_healed', true)
+    td:InitCfgData()
+    if rawget(td, 'TeamTargetTableDatas') ~= nil then
+      rawset(_G, '_mt_td_healed', (rawget(_G, '_mt_td_healed') or 0) + 1)
+    end
+  end
+end)
+rawset(_G, '__stellar_mt_td_def', true)
+end)";
+
+    // Constant one-liner into the defined function — nothing is built per tick. pcall(nil) after a Lua reset just
+    // returns false (the next EnsureTeamDataLua re-defines).
+    private const string TdHealCall = "pcall(__stellar_mt_tdHeal)";
+
+    private bool EnsureTeamDataLua()
+    {
+        var lua = _services.Lua;
+        if (!lua.Ready) return false;
+        if (lua.TryReadGlobalBool("__stellar_mt_td_def", out var def) && def) return true;
+        lua.DoString(TdDefChunk);
+        return true;
+    }
+
+    private void HealTeamData()
+    {
+        _services.Lua.DoString(TdHealCall);
+        // One typed read at the 3 s cadence; a log line only when the count goes up.
+        if (_services.Lua.TryReadGlobalNumber("_mt_td_healed", out var healed) && healed > _tdHealed)
+        {
+            _tdHealed = healed;
+            _services.Log.Info("[MultiTool] repaired party data (team target table)");
+        }
+    }
+
     // (4) Backlog sweep — approve applies that were already pending when the toggle flipped on (the push wrap only
-    // catches FUTURE applies). The live list is Z.DataMgr.Get('team_data').applyList, keyed by applyId → applyInfo
+    // catches FUTURE applies). The live list is team_data.applyList (PEEKED from DataMgr's cache, never Get), keyed by applyId → applyInfo
     // (team_data.lua:294). Runs every re-assert tick; a transient __stellar_inv_apply_seen set (pruned against the
     // live list each pass) stops an in-flight approve from re-firing, because AsyncDealApplyJoin only RemoveApplyList's
     // the id AFTER its RPC returns (team_vm.lua:665) — until then the id is still in applyList. No-op (immediate bail)
@@ -156,7 +220,9 @@ internal sealed class InviteAutoAccept
     private void SweepPartyApplyBacklog() => _services.Lua.DoString(@"
 pcall(function()
   if not __stellar_inv_partyapply_on then return end
-  local td = Z.DataMgr.Get('team_data')
+  local peek = __stellar_mt_tdPeek   -- cache peek only: never create team_data (see TdDefChunk); nil → no-op
+  if peek == nil then return end
+  local td = peek()
   if not td or not td.applyList then return end
   local seen = __stellar_inv_apply_seen
   if type(seen) ~= 'table' then seen = {}; rawset(_G,'__stellar_inv_apply_seen', seen) end
