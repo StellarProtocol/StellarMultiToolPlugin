@@ -230,8 +230,11 @@ rawset(_G, '__stellar_inv_install', function()
       pcall(function()
         local mode = __stellar_inv_leader_mode
         if mode ~= 1 and mode ~= 2 then return end
+        -- memData is a UserSummaryData: it has NO charId field (the game's own self/leader check on md.charId compares
+        -- nil). The requester id lives at basicData.charID — the same value the tip's accept passes to TransferLeader.
         local md = vRequest.memData
-        local cid = md.charId
+        local cid = md.basicData and md.basicData.charID
+        if cid == nil then return end
         local uid = tostring(cid)
         -- The original drops a request from self or from the current leader (no tip) — never transfer for those.
         -- Leader id via the team_data cache PEEK (never Z.DataMgr.Get from our code).
@@ -243,8 +246,7 @@ rawset(_G, '__stellar_inv_install', function()
         if not __stellar_inv_ok(mode, __stellar_inv_leader_uids, uid) then return end
         -- The tip (team_tips_vm.ApplyCaptain) keys on unitId = memData.basicData.charID; TeamLeader tipsType = 3.
         local tt = (E and E.InvitationTipsType and E.InvitationTipsType.TeamLeader) or 3
-        local tipId = (md.basicData and md.basicData.charID) or cid
-        __stellar_mt_closeTip(tostring(tt) .. '_' .. tostring(tipId))
+        __stellar_mt_closeTip(tostring(tt) .. '_' .. tostring(cid))
         Z.CoroUtil.create_coro_xpcall(function()
           local cs = Z.CancelSource.Rent()
           -- What the tip's accept does (team_tips_vm.lua:21); the ORIGINAL int64, not the string.
