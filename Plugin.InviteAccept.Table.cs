@@ -8,9 +8,9 @@ namespace Stellar.MultiTool;
 // Plugin.InviteAccept.cs to stay under the 500-line cap. Data + switch handlers live in Plugin.InviteRoster.cs.
 public sealed partial class Plugin
 {
-    // The ONE roster panel: caption "Players (N)" + table header + divider + rows (Name (uid) · Party · Social · ✕) +
-    // one row with "Add player…" and "Clear all". Turning both switches off keeps the row (roster-only); only ✕ /
-    // Clear all delete. The header is styled as a header (bold + muted, divider under it) so it doesn't read as a data
+    // The ONE roster panel: caption "Players (N)" + table header + divider + rows (Name (uid) · Party · Social · Leader
+    // · ✕) + one row with "Add player…" and "Clear all". Turning every switch off keeps the row (roster-only); only ✕ /
+    // Clear all delete. A column whose system is not Listed has its header dimmed (Party/Social/LeaderColDim). The header is styled as a header (bold + muted, divider under it) so it doesn't read as a data
     // row; the count lives in the caption, not the header.
     private HudElement BuildPlayersSection() => SectionPanel(() => $"Players ({_invRosterView.Count})", null,
         // Header cells mirror the row cells' widths exactly (incl. the empty ✕ column + same Gap), and the two switch
@@ -20,8 +20,9 @@ public sealed partial class Plugin
         RosterTile(new RowElement(new HudElement[]
         {
             new CellElement(InviteHeaderText(() => "Player"), Weight: 1f),
-            HeaderSwitchCell("Party"),
-            HeaderSwitchCell("Social"),
+            HeaderSwitchCell("Party",  PartyColDim),
+            HeaderSwitchCell("Social", SocialColDim),
+            HeaderSwitchCell("Leader", LeaderColDim),
             new CellElement(new TextElement(() => ""), Width: InviteRemoveColW),
         }, Gap: 4f), () => Transparent),
         new SeparatorElement(),   // the themed divider under the header
@@ -44,15 +45,16 @@ public sealed partial class Plugin
         new BubbleElement(row) { FillColorFn = () => Fade(fill()), PaddingX = InviteTilePadX, PaddingY = 0f };
 
     // Table-header label: bold + muted so it reads as a header, not a data row. NoWrap keeps it on the row pitch.
-    private TextElement InviteHeaderText(Func<string> text) => new TextElement(text,
-        Color: () => (ColorRgba?)_services.Theme.Colors.TextMuted, Emphasis: true, NoWrap: true);
+    // `dim` (polled) greys it further via Dimmed — a column with no effect right now.
+    private TextElement InviteHeaderText(Func<string> text, Func<bool>? dim = null) => new TextElement(text,
+        Color: () => (ColorRgba?)Dimmed(_services.Theme.Colors.TextMuted, dim), Emphasis: true, NoWrap: true);
 
     // Header label for a switch column: same Width + inner RowElement(Justify: Center) as SwitchCell. Text-align alone
     // isn't enough — the CellElement force-expands its child, so the label's box (not its glyphs) decides the centre;
     // the Row wrapper keeps the label at its intrinsic width and centres that box, exactly like the capsule below it
     // (WindowBuilder-Patterns.md §SelectableElement-and-CellElement force-expand).
-    private HudElement HeaderSwitchCell(string label) => new CellElement(
-        new RowElement(new HudElement[] { InviteHeaderText(() => label) }, Justify: RowJustify.Center),
+    private HudElement HeaderSwitchCell(string label, Func<bool> dim) => new CellElement(
+        new RowElement(new HudElement[] { InviteHeaderText(() => label, dim) }, Justify: RowJustify.Center),
         Width: InviteSwitchColW);
 
     // Fixed row pool reused across logical rows (_invRosterFirst = the window's first logical index, set by OnWindow).
@@ -76,9 +78,11 @@ public sealed partial class Plugin
                 // overlap the next one (WindowBuilder-Patterns.md §"Hard-clip a long list row").
                 new CellElement(new TextElement(() => Uid() is { } u ? InviteRowText(u) : "", NoWrap: true), Weight: 1f),
                 SwitchCell(() => Uid() is { } u && InParty(u),
-                           on => { if (Uid() is { } u) SetInviteSwitch(u, social: false, on); }),
+                           on => { if (Uid() is { } u) SetInviteSwitch(u, InviteCol.Party, on); }),
                 SwitchCell(() => Uid() is { } u && InSocial(u),
-                           on => { if (Uid() is { } u) SetInviteSwitch(u, social: true, on); }),
+                           on => { if (Uid() is { } u) SetInviteSwitch(u, InviteCol.Social, on); }),
+                SwitchCell(() => Uid() is { } u && InLeader(u),
+                           on => { if (Uid() is { } u) SetInviteSwitch(u, InviteCol.Leader, on); }),
                 // Same inner-RowElement trick as SwitchCell so the cell doesn't stretch the icon across the column.
                 new CellElement(new RowElement(new HudElement[]
                     {

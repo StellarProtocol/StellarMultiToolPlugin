@@ -90,7 +90,7 @@ public sealed partial class Plugin
         SectionPanel(null, null,
             // Live N: re-read each frame, so it matches the roster even if it changed while the confirm was open.
             new TextElement(() => $"Remove all {_invRosterView.Count} players?", Emphasis: true),
-            MutedLine(() => "Their Party and Social settings are deleted too. This can't be undone.")),
+            MutedLine(() => "Their Party, Social and Leader settings are deleted too. This can't be undone.")),
         PillPair(
             DangerButton(() => "Clear all", ConfirmClearAllInviteLists, PillPairWidth),
             NeutralButton(() => "Cancel", CloseInviteClearConfirm, PillPairWidth)),
