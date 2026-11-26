@@ -6,15 +6,11 @@ namespace Stellar.MultiTool;
 
 // UI for the Daily Rewards tool (mechanism: Plugin.RewardPopup.cs). Built to the approved prototype (option A,
 // _scratch\prototypes\multitool-reward-popup-placement.html): a "Daily Rewards" hub card (last) + this window =
-// ToolHeader (gift icon, title, live On/Off), one MONTHLY CARD POPUP panel (muted description + a settings row
-// "Close it automatically" with the house on/off chip), then a full-width Neutral "Close".
-// The prototype drew a switch; the house toggle is the clickable On/Off chip (Plugin.Style.Toggle.cs ToggleChip), placed
-// right of the label like the Performance window's rows.
+// ToolHeader (gift icon, title, live On/Off), one MONTHLY CARD POPUP panel (muted description + a ToggleElement switch
+// left of "Close it automatically"), then a full-width Neutral "Close".
 public sealed partial class Plugin
 {
     private IWindowControl _rewardPopupWindow = null!;
-
-    private const float RpRowHeight = 28f;   // the settings-row height of the Performance window (EffRow)
 
     private static byte[]? DailyRewardsIconPng() => CachedPng("icon-dailyrewards.png");
 
@@ -25,15 +21,9 @@ public sealed partial class Plugin
             new TextElement(() => "Your daily reward is already given when you log in. This closes the reward popup " +
                                   "for you and marks it as seen, so it doesn't come back.",
                 Color: () => MutedColor()),
-            // [strut | label (fills, ellipsizes) | chip] — the strut pins the 28 px row, rows align MiddleLeft so the
-            // 24 px chip stays centred. One save per click (SetAutoCloseRewardPopup).
-            new RowElement(new HudElement[]
-            {
-                new SpacerElement(0f, RpRowHeight),
-                new CellElement(new TextElement(() => "Close it automatically", Color: () => TextColor(), NoWrap: true)
-                    { Ellipsize = true }, Weight: 1f),
-                ToggleChip(() => AutoCloseRewardPopup, () => SetAutoCloseRewardPopup(!AutoCloseRewardPopup)),
-            }, Gap: 8f)),
+            // Switch LEFT of the label (prototype): the shared capsule row (Plugin.InviteAccept.cs InviteToggleRow =
+            // ToggleElement + label, Gap 6, the Band Mute "Enable" pattern). One save per click (SetAutoCloseRewardPopup).
+            InviteToggleRow("Close it automatically", () => AutoCloseRewardPopup, SetAutoCloseRewardPopup)),
         NeutralButton(() => "Close", () => _rewardPopupWindow.SetVisible(false)),
     }, Gap: 8f);
 
