@@ -36,8 +36,8 @@ namespace Stellar.MultiTool;
 ///   (5) PARTY LEADER REQUEST (a member asks to take over as leader) — the TEAM stub
 ///       <c>GrpcTeamNtfStubImpl.NotifyApplyBeLeader(self, call, vRequest)</c> (COLON). The original ignores a request
 ///       from the current leader or from self, else shows the tip via <c>team_tips_vm.ApplyCaptain</c>. Accept = what the
-///       tip's ✓ does (team_tips_vm.lua:21): <c>GetVM("team").AsyncTransferLeader(vRequest.memData.charId, token)</c>
-///       with the ORIGINAL int64. uid = <c>tostring(vRequest.memData.charId)</c>; tip key <c>3_&lt;charID&gt;</c>.
+///       tip's ✓ does (team_tips_vm.lua:21): <c>GetVM("team").AsyncTransferLeader(vRequest.memData.basicData.charID, token)</c>
+///       with the ORIGINAL int64. uid = <c>tostring(vRequest.memData.basicData.charID)</c> (UserSummaryData has no charId); tip key <c>3_&lt;charID&gt;</c>.
 ///
 /// Hooked by Lua method override (NOT Harmony — these are Lua methods and a C# patch risks AOT-inlining). Each wrap
 /// is idempotent: it stashes the original on the table (<c>__stellar_orig_*</c>), calls it FIRST so the game sets up
