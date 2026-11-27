@@ -4,10 +4,12 @@ using Stellar.Abstractions.Services;
 
 namespace Stellar.MultiTool;
 
-// UI for the Daily Rewards tool (mechanism: Plugin.RewardPopup.cs). Built to the approved prototype (option A,
-// _scratch\prototypes\multitool-reward-popup-placement.html): a "Daily Rewards" hub card (last) + this window =
-// ToolHeader (gift icon, title, live On/Off), one MONTHLY CARD POPUP panel (muted description + a ToggleElement switch
-// left of "Close it automatically"), then a full-width Neutral "Close".
+// UI for the Game UI tool (mechanism: Plugin.RewardPopup.cs). Built to the approved prototype (option A,
+// _scratch\prototypes\multitool-reward-popup-placement.html), then renamed from "Daily Rewards" to the generic
+// "Game UI" so later game-UI tweaks (more popup auto-closes…) land here as extra sections: a "Game UI" hub card (last)
+// + this window = ToolHeader (icon, title, live "N tweak(s) on"/"All off"), one MONTHLY CARD REWARD panel (muted
+// description + a ToggleElement switch left of "Close it automatically"), then a full-width Neutral "Close".
+// The window id "multitool.dailyrewards", config key and icon file keep their old names so saved state survives.
 public sealed partial class Plugin
 {
     private IWindowControl _rewardPopupWindow = null!;
@@ -16,8 +18,8 @@ public sealed partial class Plugin
 
     private HudElement BuildRewardPopupRoot() => new ColumnElement(new HudElement[]
     {
-        ToolHeader(DailyRewardsIconPng, "Daily Rewards", RewardPopupWindowStatus()),
-        SectionPanel(() => "Monthly card popup", null,
+        ToolHeader(DailyRewardsIconPng, "Game UI", GameUiStatus()),
+        SectionPanel(() => "Monthly card reward", null,
             new TextElement(() => "Your daily reward is already given when you log in. This closes the reward popup " +
                                   "for you and marks it as seen, so it doesn't come back.",
                 Color: () => MutedColor()),
@@ -27,13 +29,25 @@ public sealed partial class Plugin
         NeutralButton(() => "Close", () => _rewardPopupWindow.SetVisible(false)),
     }, Gap: 8f);
 
-    // Hub card status: "Auto-close popup: On" (green) / "Auto-close popup: Off" (muted). Constant strings — the Funcs are
-    // polled every refresh, so nothing is built per poll.
-    private HudElement RewardPopupHubStatus() => new TextElement(
-        () => _rpOn ? "Auto-close popup: On" : "Auto-close popup: Off",
-        Color: () => _rpOn ? StatusOn : MutedColor(), NoWrap: true);
+    // Number of Game UI tweaks switched on. A new tweak adds its own `+ (flag ? 1 : 0)` term here, and
+    // GameUiTweakText below grows with it.
+    private int GameUiTweaksOn() => _rpOn ? 1 : 0;
 
-    // Window header status: "On" (green) / "Off" (muted), same as PowerSaveWindowStatus.
-    private HudElement RewardPopupWindowStatus() => new TextElement(() => _rpOn ? "On" : "Off",
-        Color: () => _rpOn ? StatusOn : MutedColor(), NoWrap: true);
+    // Labels precomputed once, indexed by the on-count: the status Funcs are polled every refresh, so nothing is built
+    // per poll. 0 = "All off" (muted); 1 = "1 tweak on"; N>1 = "N tweaks on" (green). 16 slots is far more tweaks
+    // than the card will ever hold; a larger count clamps to the last label.
+    private static readonly string[] GameUiTweakText = BuildGameUiTweakText(16);
+
+    private static string[] BuildGameUiTweakText(int max)
+    {
+        var t = new string[max + 1];
+        t[0] = "All off";
+        for (var n = 1; n <= max; n++) t[n] = n == 1 ? "1 tweak on" : $"{n} tweaks on";
+        return t;
+    }
+
+    // Shared by the hub card and the window header (same wording + colour in both places).
+    private HudElement GameUiStatus() => new TextElement(
+        () => GameUiTweakText[Math.Min(GameUiTweaksOn(), GameUiTweakText.Length - 1)],
+        Color: () => GameUiTweaksOn() > 0 ? StatusOn : MutedColor(), NoWrap: true);
 }

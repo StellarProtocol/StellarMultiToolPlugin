@@ -27,7 +27,7 @@ public sealed partial class Plugin
     private readonly List<HubTool> _hubTools = new();
 
     // More cards than this → the card column scrolls at a fixed height that fits exactly this many cards. 6 = every
-    // release card (Daily Rewards made it 6), so the release hub never scrolls; it grows with its content.
+    // release card (Game UI made it 6), so the release hub never scrolls; it grows with its content.
     private const int   HubMaxVisibleCards = 6;
     // Card pitch, PINNED for every card: a HubCardStrut-tall spacer in the card row (rows align MiddleLeft, so the icon
     // and text stay vertically centred) + the SelectableElement's 4px vertical padding each side = 56. Pinned because the
@@ -52,7 +52,7 @@ public sealed partial class Plugin
         AddHubTool("Language & Text",     LanguageIconPng,   LanguageStatus,   _languageWindow);
         AddHubTool("Performance",         PerformanceIconPng, PerformanceHubStatus, _effectWindow);
         AddHubTool("Power Saving",        PowerSaveIconPng,  PowerSaveStatus,  _powerSaveWindow);
-        AddHubTool("Daily Rewards",       DailyRewardsIconPng, RewardPopupHubStatus, _rewardPopupWindow);
+        AddHubTool("Game UI",             DailyRewardsIconPng, GameUiStatus,     _rewardPopupWindow);
     }
 
     private void AddHubTool(string title, Func<byte[]?> icon, Func<HudElement> status, IWindowControl window) =>
