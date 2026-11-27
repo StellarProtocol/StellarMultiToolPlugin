@@ -56,6 +56,7 @@ public sealed partial class Plugin : IStellarPlugin
         InitEffectFilter();   // Performance window + effect filter: skip loading chosen skill effects (Plugin.EffectFilter.cs)
         InitPowerSave();      // Power Saving: screensaver hotkey + window (Plugin.PowerSave.cs)
         InitRewardPopup();    // Auto-close the daily monthly-card popup (+ seen-ack); + Game UI window (Plugin.RewardPopup.cs)
+        InitWardrobeMerge();  // Game UI: Wardrobe clothes + accessory slots side by side (Plugin.WardrobeMerge.cs)
 
         // Load-time migrations above only STAGE (Set) and raise _cfgLoadDirty; persist them with ONE save here. Each
         // Init saving on its own meant back-to-back writes, and the framework's single-thread writer has no retry on
@@ -145,6 +146,7 @@ public sealed partial class Plugin : IStellarPlugin
         DisposeEffectFilter();
         DisposePowerSave();   // exits an active session first: never leave the player throttled / logo-covered
         DisposeRewardPopup();
+        DisposeWardrobeMerge();
         foreach (var l in _launchers) l.Dispose();
         foreach (var w in _windows) w.Remove();
     }
