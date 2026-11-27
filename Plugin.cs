@@ -21,6 +21,8 @@ namespace Stellar.MultiTool;
 //     (Plugin.PartyThrottle.cs).
 //   • Power Saving — the game's mobile AFK screensaver on PC: hotkey (default End) or the window's "Enter power saving"
 //     pill; a native Exit button leaves it (Plugin.PowerSave.cs, moved from MahiruUtility 2026-11-15).
+//   • Auto-close reward popup — closes the daily monthly-card popup after sending its "seen" ack, so it stops
+//     re-showing every login (Plugin.RewardPopup.cs). Logic only for now (default off, no hub card yet).
 //
 // Adding a tool:
 //   1. Put it in its own partial `Plugin.<Feature>.cs` with an `Init<Feature>()` that registers its window via
@@ -53,6 +55,8 @@ public sealed partial class Plugin : IStellarPlugin
         InitPartyThrottle();  // Performance → party list throttle; state only, its 1 Hz tick waits for the world (Plugin.PartyThrottle.cs)
         InitEffectFilter();   // Performance window + effect filter: skip loading chosen skill effects (Plugin.EffectFilter.cs)
         InitPowerSave();      // Power Saving: screensaver hotkey + window (Plugin.PowerSave.cs)
+        InitRewardPopup();    // Auto-close the daily monthly-card popup (+ seen-ack); + Game UI window (Plugin.RewardPopup.cs)
+        InitWardrobeMerge();  // Game UI: Wardrobe clothes + accessory slots side by side (Plugin.WardrobeMerge.cs)
 
         // Load-time migrations above only STAGE (Set) and raise _cfgLoadDirty; persist them with ONE save here. Each
         // Init saving on its own meant back-to-back writes, and the framework's single-thread writer has no retry on
@@ -141,6 +145,8 @@ public sealed partial class Plugin : IStellarPlugin
         DisposePartyThrottle();
         DisposeEffectFilter();
         DisposePowerSave();   // exits an active session first: never leave the player throttled / logo-covered
+        DisposeRewardPopup();
+        DisposeWardrobeMerge();
         foreach (var l in _launchers) l.Dispose();
         foreach (var w in _windows) w.Remove();
     }

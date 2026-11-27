@@ -26,8 +26,9 @@ public sealed partial class Plugin
 
     private readonly List<HubTool> _hubTools = new();
 
-    // More cards than this → the card column scrolls at a fixed height that fits exactly this many cards.
-    private const int   HubMaxVisibleCards = 5;
+    // More cards than this → the card column scrolls at a fixed height that fits exactly this many cards. 6 = every
+    // release card (Game UI made it 6), so the release hub never scrolls; it grows with its content.
+    private const int   HubMaxVisibleCards = 6;
     // Card pitch, PINNED for every card: a HubCardStrut-tall spacer in the card row (rows align MiddleLeft, so the icon
     // and text stay vertically centred) + the SelectableElement's 4px vertical padding each side = 56. Pinned because the
     // cards differ naturally (in-game: Mute 48px vs Auto-Accept 56px — the chip row is taller than plain status text),
@@ -37,7 +38,7 @@ public sealed partial class Plugin
     private const float HubCardGap    = 8f;
 
 #if DEBUG
-    // Debug builds repeat the card list so the >5-card scroll path can be seen with today's 3 tools (3 → 9 cards).
+    // Debug builds repeat the card list so the >6-card scroll path can be seen (6 tools → 18 cards).
     // Release builds never duplicate.
     private const int HubDebugCardCopies = 3;
 #else
@@ -51,6 +52,7 @@ public sealed partial class Plugin
         AddHubTool("Language & Text",     LanguageIconPng,   LanguageStatus,   _languageWindow);
         AddHubTool("Performance",         PerformanceIconPng, PerformanceHubStatus, _effectWindow);
         AddHubTool("Power Saving",        PowerSaveIconPng,  PowerSaveStatus,  _powerSaveWindow);
+        AddHubTool("Game UI Tweaks",      GameUiIconPng, GameUiStatus,     _rewardPopupWindow);
     }
 
     private void AddHubTool(string title, Func<byte[]?> icon, Func<HudElement> status, IWindowControl window) =>
