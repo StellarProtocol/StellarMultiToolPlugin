@@ -19,7 +19,7 @@ namespace Stellar.MultiTool;
 //
 // Gating: a 0.5 s Framework.Every tick exists ONLY while the setting is on (off → no tick, no Lua at all); each tick
 // returns at once unless world-ready (EffWorldReady: Phase == World && IsWorldActive && !Loading) and Lua is ready.
-// Config: "reward_popup_autoclose" (bool, default RpDefaultOn). UI: the "Game UI" hub card + window
+// Config: "reward_popup_autoclose" (bool, default RpDefaultOn). UI: the "Game UI Tweaks" hub card + window
 // (Plugin.RewardPopupWindow.cs), whose toggle calls SetAutoCloseRewardPopup.
 public sealed partial class Plugin
 {
@@ -78,7 +78,7 @@ public sealed partial class Plugin
     private void InitRewardPopup()
     {
         _rpOn = _cfg.Get<bool>(RpOnKey, RpDefaultOn);
-        _rewardPopupWindow = RegisterWindow("multitool.dailyrewards", "MultiTool: Game UI", 8, BuildRewardPopupRoot());
+        _rewardPopupWindow = RegisterWindow("multitool.dailyrewards", "MultiTool: Game UI Tweaks", 8, BuildRewardPopupRoot());
         if (_rpOn) StartRpTick();   // at construction → never in world yet → the first world tick defines + polls
     }
 

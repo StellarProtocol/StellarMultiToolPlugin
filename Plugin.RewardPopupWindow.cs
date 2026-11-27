@@ -6,7 +6,7 @@ namespace Stellar.MultiTool;
 
 // UI for the Game UI tool (mechanism: Plugin.RewardPopup.cs). Built to the approved prototype (option A,
 // _scratch\prototypes\multitool-reward-popup-placement.html), then renamed from "Daily Rewards" to the generic
-// "Game UI" so later game-UI tweaks (more popup auto-closes…) land here as extra sections: a "Game UI" hub card (last)
+// "Game UI" so later game-UI tweaks (more popup auto-closes…) land here as extra sections: a "Game UI Tweaks" hub card (last)
 // + this window = ToolHeader (icon, title, live "N tweak(s) on"/"All off"), one MONTHLY CARD REWARD panel (muted
 // description + a ToggleElement switch left of "Close it automatically"), a WARDROBE panel of the same shape
 // (Plugin.WardrobeMerge.cs), then a full-width Neutral "Close". The window auto-sizes (height 0), so no height tuning.
@@ -19,7 +19,7 @@ public sealed partial class Plugin
 
     private HudElement BuildRewardPopupRoot() => new ColumnElement(new HudElement[]
     {
-        ToolHeader(GameUiIconPng, "Game UI", GameUiStatus()),
+        ToolHeader(GameUiIconPng, "Game UI Tweaks", GameUiStatus()),
         SectionPanel(() => "Monthly card reward", null,
             new TextElement(() => "Your daily reward is already given when you log in. This closes the reward popup " +
                                   "for you and marks it as seen, so it doesn't come back.",

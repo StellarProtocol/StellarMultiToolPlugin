@@ -52,7 +52,7 @@ public sealed partial class Plugin
         AddHubTool("Language & Text",     LanguageIconPng,   LanguageStatus,   _languageWindow);
         AddHubTool("Performance",         PerformanceIconPng, PerformanceHubStatus, _effectWindow);
         AddHubTool("Power Saving",        PowerSaveIconPng,  PowerSaveStatus,  _powerSaveWindow);
-        AddHubTool("Game UI",             GameUiIconPng, GameUiStatus,     _rewardPopupWindow);
+        AddHubTool("Game UI Tweaks",      GameUiIconPng, GameUiStatus,     _rewardPopupWindow);
     }
 
     private void AddHubTool(string title, Func<byte[]?> icon, Func<HudElement> status, IWindowControl window) =>
