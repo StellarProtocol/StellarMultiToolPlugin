@@ -35,11 +35,19 @@ public sealed partial class Plugin
     // the "[GameUI] Wardrobe merge: loop_tab …" log line.
     private const int WmCloneGap = 8;
 
+    // Model screen X (0..1 viewport) while the merged columns are shown. The game's initFashionCamera (:218-234) puts
+    // the model at 0.4, which reads off-centre to the left once the second column takes up space; 0.50 was picked by the
+    // user (0.46 tested live first: centred, head-zoom framing fine). All tabs incl. weapon — no per-tab switching.
+    // Unpatch on an open Wardrobe → back to 0.4.
+    private const double WmModelScreenX = 0.50;
+
     private static readonly string WmLuaDefine =
         "local GAP = " + WmCloneGap.ToString(CultureInfo.InvariantCulture) + "\n" +
+        "local MODEL_X = " + WmModelScreenX.ToString(CultureInfo.InvariantCulture) + "\n" +
 @"local W = rawget(_G, '__stellarMtWm')
 if not W then W = {} rawset(_G, '__stellarMtWm', W) end
 W.gap = GAP
+W.modelX = MODEL_X
 
 local function note(msg)
   if W.err then return end
@@ -228,10 +236,21 @@ W.wCamera = W.wCamera or function(self, ...)
   if not ok then note('changeCameraFocus: ' .. tostring(e)) return W.O.changeCameraFocus(self, ...) end
 end
 
+-- initFashionCamera runs inside OnActive (:73), i.e. after our OnActive wrapper built the clone → merged() is already
+-- true for this open. Only the screen X is overridden; zoom ranges / look-at offsets stay the game's.
+W.wInitCamera = W.wInitCamera or function(self, ...)
+  local r = W.O.initFashionCamera(self, ...)
+  if merged(self) then
+    local ok, e = pcall(function() Z.UnrealSceneMgr:SetUnrealCameraScreenXY(Vector2.New(W.modelX, 0.5)) end)
+    if not ok then note('initFashionCamera: ' .. tostring(e)) end
+  end
+  return r
+end
+
 W.wrappers = {
   OnActive = W.wOnActive, OnDeActive = W.wOnDeActive,
   refreshSecondList = W.wRefreshSecondList, refreshSecondListSelect = W.wRefreshSelect,
-  OnSwitchRegion = W.wSwitch, changeCameraFocus = W.wCamera,
+  OnSwitchRegion = W.wSwitch, changeCameraFocus = W.wCamera, initFashionCamera = W.wInitCamera,
 }
 
 -- Idempotent: a field that already holds our wrapper keeps its parked original. Sets __mtWmPatched on success.
@@ -274,6 +293,8 @@ rawset(_G, '__stellarMtWmUnpatch', function()
     for name, w in pairs(W.wrappers) do
       if rawget(V, name) == w and W.O[name] then rawset(V, name, W.O[name]) end
     end
+    -- Model back to the game's own screen X (initFashionCamera :226), any tab.
+    if live then pcall(function() Z.UnrealSceneMgr:SetUnrealCameraScreenXY(Vector2.New(0.4, 0.5)) end) end
     if live and v.IsActive and v.uiBinder and v.curFirstTab_ == E.EFashionFirstTab.EClothes then
       if inList(W.OR, v.curRegion_) then
         v.uiBinder.tog_ornament.tog_tab_select.isOn = true
