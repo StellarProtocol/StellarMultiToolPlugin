@@ -15,11 +15,11 @@ public sealed partial class Plugin
 {
     private IWindowControl _rewardPopupWindow = null!;
 
-    private static byte[]? DailyRewardsIconPng() => CachedPng("icon-dailyrewards.png");
+    private static byte[]? GameUiIconPng() => CachedPng("icon-gameui.png");
 
     private HudElement BuildRewardPopupRoot() => new ColumnElement(new HudElement[]
     {
-        ToolHeader(DailyRewardsIconPng, "Game UI", GameUiStatus()),
+        ToolHeader(GameUiIconPng, "Game UI", GameUiStatus()),
         SectionPanel(() => "Monthly card reward", null,
             new TextElement(() => "Your daily reward is already given when you log in. This closes the reward popup " +
                                   "for you and marks it as seen, so it doesn't come back.",
