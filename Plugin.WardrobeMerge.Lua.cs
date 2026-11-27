@@ -157,8 +157,13 @@ W.wOnActive = W.wOnActive or function(self, ...)
   return W.O.OnActive(self, ...)
 end
 
+-- A merged open also puts the model's screen X back to the game's 0.4 (initFashionCamera :226): many views call
+-- InitSceneCamera without ever setting ScreenXY, so they would inherit our value otherwise.
 W.wOnDeActive = W.wOnDeActive or function(self, ...)
-  if self.__mtWm then pcall(W.drop, self) end
+  if self.__mtWm then
+    pcall(W.drop, self)
+    pcall(function() Z.UnrealSceneMgr:SetUnrealCameraScreenXY(Vector2.New(0.4, 0.5)) end)
+  end
   return W.O.OnDeActive(self, ...)
 end
 
